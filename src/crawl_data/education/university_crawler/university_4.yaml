@@ -1,0 +1,523 @@
+# Nguồn tuyển sinh bổ sung, không trùng với universities.yaml,
+# university_2.yaml và university_3.yaml.
+#
+# Mục tiêu: thu thập thông báo, đề án, quy chế, phương thức,
+# hướng dẫn đăng ký/xét tuyển và các tài liệu PDF/DOCX liên quan.
+#
+# Hai nguồn HANU và Học viện Tài chính dùng Playwright vì trang danh sách
+# có nội dung/link được tải động. Cài thêm khi cần:
+#   pip install playwright
+#   python -m playwright install chromium
+
+universities:
+  # ============================================================
+  # 1. TRƯỜNG ĐẠI HỌC CÔNG NGHIỆP HÀ NỘI
+  # ============================================================
+  - key: haui
+    name: Trường Đại học Công nghiệp Hà Nội
+    base_url: https://tuyensinh.haui.edu.vn
+    start_urls:
+      - https://tuyensinh.haui.edu.vn/tin-tuc
+    id_prefix: education_haui
+    renderer: requests
+
+    # Bài chi tiết có dạng:
+    # /tin-tuc/<slug>/<object-id-24-ky-tu-hex>
+    detail_patterns:
+      - '^https://tuyensinh\.haui\.edu\.vn/tin-tuc/[^/?#]+/[0-9a-f]{24}/?$'
+
+    pagination_patterns:
+      - '^https://tuyensinh\.haui\.edu\.vn/tin-tuc\?.*\bpage=\d+'
+      - '^https://tuyensinh\.haui\.edu\.vn/tin-tuc/page/\d+/?$'
+
+    exclude_patterns:
+      - '/hoi-dap(?:$|[/?#])'
+      - '/lien-he(?:$|[/?#])'
+      - '/dang-ky(?:$|[/?#])'
+      - '/tra-cuu(?:$|[/?#])'
+      - '/login(?:$|[/?#])'
+
+    list_link_selectors:
+      - 'main'
+      - '.news-list'
+      - '.list-news'
+      - '.posts'
+      - '.content'
+      - 'body'
+
+    content_selectors:
+      - '.news-detail'
+      - '.detail-content'
+      - '.article-content'
+      - '.post-content'
+      - '.content'
+      - 'article'
+      - 'main'
+
+    attachment_patterns:
+      - '/uploads/'
+      - '/upload/'
+      - '/files/'
+      - '\.(pdf|docx?)(?:$|[?&#])'
+
+    id_pattern: '/([0-9a-f]{24})/?$'
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 30
+    max_docs: 900
+    min_chars: 300
+
+  # ============================================================
+  # 2. HỌC VIỆN NGÂN HÀNG
+  # ============================================================
+  - key: hvnh
+    name: Học viện Ngân hàng
+    base_url: https://hvnh.edu.vn
+    start_urls:
+      - https://hvnh.edu.vn/hvnh/vi/thong-tin-tuyen-sinh
+    id_prefix: education_hvnh
+    renderer: requests
+
+    detail_patterns:
+      - '^https://hvnh\.edu\.vn/hvnh/vi/thong-tin-tuyen-sinh/[^?#]+-\d+\.html$'
+
+    pagination_patterns:
+      - '^https://hvnh\.edu\.vn/hvnh/vi/thong-tin-tuyen-sinh\?.*\b(?:page|trang|p)=\d+'
+      - '^https://hvnh\.edu\.vn/hvnh/vi/thong-tin-tuyen-sinh/(?:page|trang)/\d+/?$'
+
+    exclude_patterns:
+      - '/tim-kiem'
+      - '/search'
+      - '/dang-nhap'
+      - '/login'
+      - '/lien-he'
+
+    list_link_selectors:
+      - 'main'
+      - '.news-list'
+      - '.list-news'
+      - '.content'
+      - '#content'
+      - 'body'
+
+    content_selectors:
+      - '.news-detail'
+      - '.detail-content'
+      - '.article-content'
+      - '.content-detail'
+      - '.content'
+      - 'article'
+      - 'main'
+
+    attachment_patterns:
+      - '/uploads/'
+      - '/upload/'
+      - '/files/'
+      - '/FileUpload/'
+      - '\.(pdf|docx?)(?:$|[?&#])'
+
+    id_pattern: '-(\d+)\.html$'
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 30
+    max_docs: 900
+    min_chars: 300
+
+  # ============================================================
+  # 3. TRƯỜNG ĐẠI HỌC LUẬT HÀ NỘI
+  # ============================================================
+  - key: hlu
+    name: Trường Đại học Luật Hà Nội
+    base_url: https://tuyensinh.hlu.edu.vn
+    start_urls:
+      # Chuyên mục thông tin tuyển sinh đại học.
+      - https://tuyensinh.hlu.edu.vn/TsNews/GetAllNewsByCat/7889
+    id_prefix: education_hlu
+    renderer: requests
+
+    detail_patterns:
+      - '^https://tuyensinh\.hlu\.edu\.vn/tsnews/details/\d+/?$'
+
+    pagination_patterns:
+      - '^https://tuyensinh\.hlu\.edu\.vn/TsNews/GetAllNewsByCat/7889\?.*\b(?:page|p)=\d+'
+      - '^https://tuyensinh\.hlu\.edu\.vn/TsNews/GetAllNewsByCat/7889/(?:page/)?\d+/?$'
+
+    exclude_patterns:
+      - '/Account/'
+      - '/Login'
+      - '/Search'
+      - '/LienHe'
+
+    list_link_selectors:
+      - 'main'
+      - '.news-list'
+      - '.list-news'
+      - '.tab-content'
+      - '.content'
+      - '#content'
+      - 'body'
+
+    content_selectors:
+      - '.news-detail'
+      - '.detail-news'
+      - '.detail-content'
+      - '.article-content'
+      - '.box-content'
+      - '.content'
+      - 'article'
+      - 'main'
+
+    attachment_patterns:
+      - '/uploads/'
+      - '/upload/'
+      - '/files/'
+      - '/FileUpload/'
+      - '\.(pdf|docx?)(?:$|[?&#])'
+
+    id_pattern: '/details/(\d+)/?$'
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 30
+    max_docs: 900
+    min_chars: 300
+
+  # ============================================================
+  # 4. TRƯỜNG ĐẠI HỌC TÀI CHÍNH - MARKETING
+  # ============================================================
+  - key: ufm
+    name: Trường Đại học Tài chính - Marketing
+    base_url: https://tuyensinh.ufm.edu.vn
+    start_urls:
+      - https://tuyensinh.ufm.edu.vn/vi/thong-tin-tuyen-sinh-dai-hoc-chinh-quy
+    id_prefix: education_ufm
+    renderer: requests
+
+    detail_patterns:
+      - '^https://tuyensinh\.ufm\.edu\.vn/vi/thong-tin-tuyen-sinh-dai-hoc-chinh-quy/[^/?#]+/?(?:\?.*)?$'
+
+    pagination_patterns:
+      - '^https://tuyensinh\.ufm\.edu\.vn/vi/thong-tin-tuyen-sinh-dai-hoc-chinh-quy/page/\d+/?$'
+      - '^https://tuyensinh\.ufm\.edu\.vn/vi/thong-tin-tuyen-sinh-dai-hoc-chinh-quy\?.*\bpage=\d+'
+
+    exclude_patterns:
+      - '/tag/'
+      - '/author/'
+      - '/search'
+      - '/tim-kiem'
+      - '/login'
+      - '/lien-he'
+
+    list_link_selectors:
+      - 'main'
+      - '.news-list'
+      - '.list-news'
+      - '.posts'
+      - '.content'
+      - '#content'
+      - 'body'
+
+    content_selectors:
+      - '.news-detail'
+      - '.detail-content'
+      - '.article-content'
+      - '.post-content'
+      - '.content'
+      - 'article'
+      - 'main'
+
+    attachment_patterns:
+      # Một số file UFM đi qua cổng đăng nhập/tải tài liệu riêng.
+      - 'login\.ufm\.edu\.vn'
+      - '/uploads/'
+      - '/upload/'
+      - '/files/'
+      - '\.(pdf|docx?)(?:$|[?&#])'
+
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 30
+    max_docs: 900
+    min_chars: 300
+
+  # ============================================================
+  # 5. TRƯỜNG ĐẠI HỌC XÂY DỰNG HÀ NỘI
+  # ============================================================
+  - key: huce
+    name: Trường Đại học Xây dựng Hà Nội
+    base_url: https://tuyensinh.huce.edu.vn
+    start_urls:
+      - https://tuyensinh.huce.edu.vn/
+    id_prefix: education_huce
+    renderer: requests
+
+    # Chỉ nhận các slug có từ khóa tuyển sinh để tránh menu/ngành học.
+    detail_patterns:
+      - '^https://tuyensinh\.huce\.edu\.vn/[^/?#]*(?:tuyen-sinh|xet-tuyen|quy-che|phuong-thuc|nhap-hoc|nguong|diem|nang-khieu|nguyen-vong|thanh-toan)[^/?#]*/?(?:\?.*)?$'
+
+    pagination_patterns:
+      - '^https://tuyensinh\.huce\.edu\.vn/(?:tin-tuc/)?page/\d+/?$'
+      - '^https://tuyensinh\.huce\.edu\.vn/(?:tin-tuc)?/?\?.*\bpage=\d+'
+
+    exclude_patterns:
+      - '/hoi-dap(?:$|[/?#])'
+      - '/lien-he(?:$|[/?#])'
+      - '/dang-nhap(?:$|[/?#])'
+      - '/login(?:$|[/?#])'
+      - '/search(?:$|[/?#])'
+
+    list_link_selectors:
+      - 'main'
+      - '.news-list'
+      - '.list-news'
+      - '.posts'
+      - '.content'
+      - 'body'
+
+    content_selectors:
+      - '.news-detail'
+      - '.detail-content'
+      - '.article-content'
+      - '.post-content'
+      - '.content'
+      - 'article'
+      - 'main'
+
+    attachment_patterns:
+      - '/uploads/'
+      - '/upload/'
+      - '/files/'
+      - '\.(pdf|docx?)(?:$|[?&#])'
+
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 25
+    max_docs: 700
+    min_chars: 300
+
+  # ============================================================
+  # 6. TRƯỜNG ĐẠI HỌC MỞ TP.HCM
+  # ============================================================
+  - key: ou_hcm
+    name: Trường Đại học Mở Thành phố Hồ Chí Minh
+    base_url: https://tuyensinh.ou.edu.vn
+    start_urls:
+      - https://tuyensinh.ou.edu.vn/
+    id_prefix: education_ou_hcm
+    renderer: requests
+
+    # Bài viết nằm ở root; giới hạn theo từ khóa tuyển sinh quan trọng.
+    detail_patterns:
+      - '^https://tuyensinh\.ou\.edu\.vn/[^/?#]*(?:tuyen-sinh|xet-tuyen|quy-che|phuong-thuc|nguong|nhap-hoc|trung-tuyen|diem-chuan)[^/?#]*/?(?:\?.*)?$'
+
+    pagination_patterns:
+      - '^https://tuyensinh\.ou\.edu\.vn/(?:page|trang)/\d+/?$'
+      - '^https://tuyensinh\.ou\.edu\.vn/\?.*\bpage=\d+'
+
+    exclude_patterns:
+      - '/lien-he(?:$|[/?#])'
+      - '/dang-ky-tu-van(?:$|[/?#])'
+      - '/tra-cuu(?:$|[/?#])'
+      - '/login(?:$|[/?#])'
+      - '/search(?:$|[/?#])'
+
+    list_link_selectors:
+      - 'main'
+      - '.news-list'
+      - '.list-news'
+      - '.posts'
+      - '.content'
+      - '#content'
+      - 'body'
+
+    content_selectors:
+      - '.news-detail'
+      - '.detail-content'
+      - '.article-content'
+      - '.entry-content'
+      - '.post-content'
+      - '.content'
+      - 'article'
+      - 'main'
+
+    attachment_patterns:
+      - '/uploads/'
+      - '/upload/'
+      - '/files/'
+      - '/wp-content/uploads/'
+      - '\.(pdf|docx?)(?:$|[?&#])'
+
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 25
+    max_docs: 800
+    min_chars: 300
+
+  # ============================================================
+  # 7. TRƯỜNG ĐẠI HỌC LUẬT TP.HCM
+  # ============================================================
+  - key: hcmulaw
+    name: Trường Đại học Luật Thành phố Hồ Chí Minh
+    base_url: https://ts.hcmulaw.edu.vn
+    start_urls:
+      - https://ts.hcmulaw.edu.vn/thong-tin-tuyen-sinh-dai-hoc
+    id_prefix: education_hcmulaw
+    renderer: requests
+
+    detail_patterns:
+      - '^https://ts\.hcmulaw\.edu\.vn/thong-tin-tuyen-sinh-dai-hoc/[^?#]+-\d+\.html$'
+
+    pagination_patterns:
+      - '^https://ts\.hcmulaw\.edu\.vn/thong-tin-tuyen-sinh-dai-hoc/page/\d+/?$'
+      - '^https://ts\.hcmulaw\.edu\.vn/thong-tin-tuyen-sinh-dai-hoc\?.*\bpage=\d+'
+
+    exclude_patterns:
+      - '/search'
+      - '/tim-kiem'
+      - '/login'
+      - '/lien-he'
+
+    list_link_selectors:
+      - 'main'
+      - '.news-list'
+      - '.list-news'
+      - '.content'
+      - '#content'
+      - 'body'
+
+    content_selectors:
+      - '.news-detail'
+      - '.detail-content'
+      - '.article-content'
+      - '.content-detail'
+      - '.content'
+      - 'article'
+      - 'main'
+
+    attachment_patterns:
+      - '/uploads/'
+      - '/upload/'
+      - '/files/'
+      - '\.(pdf|docx?)(?:$|[?&#])'
+
+    id_pattern: '-(\d+)\.html$'
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 30
+    max_docs: 900
+    min_chars: 300
+
+  # ============================================================
+  # 8. TRƯỜNG ĐẠI HỌC HÀ NỘI
+  # ============================================================
+  - key: hanu
+    name: Trường Đại học Hà Nội
+    base_url: https://www.hanu.vn
+    start_urls:
+      - https://www.hanu.vn/c/6909/Thong-tin-tuyen-sinh
+      - https://www.hanu.vn/c/6986/Thong-bao
+    id_prefix: education_hanu
+    renderer: playwright
+
+    # Bài chi tiết có dạng /a/<id>/<slug>?c=<category-id>.
+    detail_patterns:
+      - '^https://www\.hanu\.vn/a/\d+/[^?#]+(?:\?.*)?$'
+
+    pagination_patterns:
+      - '^https://www\.hanu\.vn/c/(?:6909|6986)/[^?#]+\?.*\b(?:page|p)=\d+'
+      - '^https://www\.hanu\.vn/c/(?:6909|6986)/[^?#]+/(?:page/)?\d+/?$'
+
+    exclude_patterns:
+      - '/login'
+      - '/search'
+      - '/tim-kiem'
+      - '/lien-he'
+      - '/user/'
+
+    list_link_selectors:
+      - 'main'
+      - '.news-list'
+      - '.list-news'
+      - '.content'
+      - '#content'
+      - 'body'
+
+    content_selectors:
+      - '.news-detail'
+      - '.detail-content'
+      - '.article-content'
+      - '.content-detail'
+      - '.content'
+      - 'article'
+      - 'main'
+
+    attachment_patterns:
+      - '/uploads/'
+      - '/upload/'
+      - '/files/'
+      - '\.(pdf|docx?)(?:$|[?&#])'
+
+    id_pattern: '/a/(\d+)/'
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 30
+    max_docs: 900
+    min_chars: 300
+
+  # ============================================================
+  # 9. HỌC VIỆN TÀI CHÍNH
+  # ============================================================
+  - key: hvtc
+    name: Học viện Tài chính
+    base_url: https://hvtc.edu.vn
+    start_urls:
+      - https://hvtc.edu.vn/Tin-tuc/tuyen-sinh-dai-hoc-chinh-quy_4527.html
+      - https://hvtc.edu.vn/
+    id_prefix: education_hvtc
+    renderer: playwright
+
+    # Bài chi tiết thường nằm ở root và kết thúc bằng _<id>.html.
+    # Loại riêng các trang danh mục /Tin-tuc/ khỏi detail URL.
+    detail_patterns:
+      - '^https://hvtc\.edu\.vn/(?!Tin-tuc/)[^?#]+_\d+\.html$'
+
+    pagination_patterns:
+      - '^https://hvtc\.edu\.vn/Tin-tuc/tuyen-sinh-dai-hoc-chinh-quy_4527\.html\?.*\b(?:page|p)=\d+'
+      - '^https://hvtc\.edu\.vn/Tin-tuc/tuyen-sinh-dai-hoc-chinh-quy_4527/(?:page/)?\d+/?$'
+
+    exclude_patterns:
+      - '/dang-nhap'
+      - '/login'
+      - '/search'
+      - '/tim-kiem'
+      - '/lien-he'
+
+    list_link_selectors:
+      - 'main'
+      - '.news-list'
+      - '.list-news'
+      - '.content'
+      - '#content'
+      - 'body'
+
+    content_selectors:
+      - '.news-detail'
+      - '.detail-content'
+      - '.article-content'
+      - '.content-detail'
+      - '.content'
+      - 'article'
+      - 'main'
+
+    attachment_patterns:
+      - '/Uploads/'
+      - '/uploads/'
+      - '/upload/'
+      - '/files/'
+      - '\.(pdf|docx?)(?:$|[?&#])'
+
+    id_pattern: '_(\d+)\.html$'
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 30
+    max_docs: 900
+    min_chars: 300

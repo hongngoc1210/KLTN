@@ -1,0 +1,228 @@
+# Mỗi block là một website tuyển sinh.
+#
+# Các trường quan trọng:
+# - start_urls: chuyên mục danh sách cần crawl.
+# - detail_patterns: regex nhận diện bài viết chi tiết.
+# - pagination_patterns: regex nhận diện các trang danh sách tiếp theo.
+# - list_link_selectors: vùng chứa link bài viết; để [] sẽ scan mọi <a>.
+# - content_selectors: vùng nội dung chính; crawler chọn text dài nhất.
+# - attachment_patterns: regex bổ sung để nhận diện link tải tài liệu.
+# - renderer: requests hoặc playwright.
+#
+# Khi website đổi giao diện, thường chỉ cần sửa selector/pattern tại đây.
+
+universities:
+  - key: uit
+    name: Trường Đại học Công nghệ Thông tin - ĐHQG-HCM
+    base_url: https://tuyensinh.uit.edu.vn
+    start_urls:
+      - https://tuyensinh.uit.edu.vn/tin-tuc-tuyen-sinh
+    id_prefix: education_uit
+    renderer: requests
+    detail_patterns:
+      # Bài UIT thường có slug trực tiếp sau domain.
+      - '^https://tuyensinh\.uit\.edu\.vn/(?!tin-tuc-tuyen-sinh(?:$|[/?#])|taxonomy/|user/|search/|component/|sites/|.*\.(?:pdf|docx?|jpg|jpeg|png|gif)(?:$|[?#]))[^?#]+$'
+    pagination_patterns:
+      - '^https://tuyensinh\.uit\.edu\.vn/tin-tuc-tuyen-sinh\?.*\bpage=\d+'
+      - '^https://tuyensinh\.uit\.edu\.vn/taxonomy/term/\d+/.+\?.*\bpage=\d+'
+    exclude_patterns:
+      - '/cau-hoi-thuong-gap(?:$|[/?#])'
+      - '/lien-he(?:$|[/?#])'
+      - '/nganh-dao-tao(?:$|[/?#])'
+      - '/dang-ky(?:$|[/?#])'
+      - '/feed(?:$|[/?#])'
+    list_link_selectors:
+      - '.view-content'
+      - '.views-row'
+      - '.item-list'
+      - 'main'
+    content_selectors:
+      - '.field-name-body'
+      - '.node-content'
+      - 'article'
+      - 'main'
+    attachment_patterns:
+      - '\.(pdf|docx?)(?:$|[?&#])'
+      - '/sites/default/files/'
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 30
+    max_docs: 600
+    min_chars: 300
+
+  - key: ptit
+    name: Học viện Công nghệ Bưu chính Viễn thông
+    base_url: https://tuyensinh.ptit.edu.vn
+    start_urls:
+      - https://tuyensinh.ptit.edu.vn/thong-bao/tuyen-sinh-dai-hoc/
+    id_prefix: education_ptit
+    renderer: requests
+    detail_patterns:
+      # WordPress post tại PTIT thường là slug ở root.
+      - '^https://tuyensinh\.ptit\.edu\.vn/(?!thong-bao(?:$|/)|category/|tag/|author/|wp-|page/|feed/|.*\.(?:pdf|docx?|jpg|jpeg|png|gif)(?:$|[?#]))[^?#/]+/?$'
+    pagination_patterns:
+      - '^https://tuyensinh\.ptit\.edu\.vn/thong-bao/tuyen-sinh-dai-hoc/page/\d+'
+      - '^https://tuyensinh\.ptit\.edu\.vn/thong-bao/tuyen-sinh-dai-hoc/\?.*\bpage=\d+'
+    exclude_patterns:
+      - '/wp-json/'
+      - '/wp-admin/'
+      - '/wp-login'
+    list_link_selectors:
+      - 'main'
+      - '.elementor-posts-container'
+      - '.posts'
+      - '.blog'
+    content_selectors:
+      - '.elementor-widget-theme-post-content'
+      - '.entry-content'
+      - '.post-content'
+      - 'article'
+    attachment_patterns:
+      - '/wp-content/uploads/'
+      - '\.(pdf|docx?)(?:$|[?&#])'
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 30
+    max_docs: 600
+    min_chars: 300
+
+  - key: vnu
+    name: Đại học Quốc gia Hà Nội
+    base_url: https://tuyensinh.vnu.edu.vn
+    start_urls:
+      - https://tuyensinh.vnu.edu.vn/
+    id_prefix: education_vnu
+    renderer: requests
+    detail_patterns:
+      - '^https://tuyensinh\.vnu\.edu\.vn/index\.php/Home/viewnews(?:VNU)?/\d+'
+      - '^https://tuyensinh\.vnu\.edu\.vn/index\.php/Home/viewpage/\d+'
+    pagination_patterns:
+      - '^https://tuyensinh\.vnu\.edu\.vn/index\.php/Home/(?:index|listnews).*(?:page|p)=\d+'
+    exclude_patterns:
+      - '/Home/listnganh'
+      - '/Home/login'
+    list_link_selectors:
+      - 'main'
+      - '.content'
+      - '.news'
+      - 'body'
+    content_selectors:
+      - '.news-detail'
+      - '.content-detail'
+      - '.content'
+      - 'main'
+    attachment_patterns:
+      - '\.(pdf|docx?)(?:$|[?&#])'
+      - '/uploads/'
+    id_pattern: '/(?:viewnews|viewnewsVNU|viewpage)/(\d+)'
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 20
+    max_docs: 500
+    min_chars: 300
+
+  - key: hust
+    name: Đại học Bách khoa Hà Nội
+    base_url: https://ts.hust.edu.vn
+    start_urls:
+      - https://ts.hust.edu.vn/tin-tuc
+    id_prefix: education_hust
+    renderer: requests
+    detail_patterns:
+      - '^https://ts\.hust\.edu\.vn/tin-tuc/[^/?#]+'
+    pagination_patterns:
+      - '^https://ts\.hust\.edu\.vn/tin-tuc(?:\?|/).*(?:page|p)=?\d+'
+      - '^https://ts\.hust\.edu\.vn/tin-tuc/page/\d+'
+    exclude_patterns:
+      - '/login(?:$|[/?#])'
+      - '/register(?:$|[/?#])'
+    list_link_selectors:
+      - 'main'
+      - '.news-list'
+      - '.posts'
+      - 'body'
+    content_selectors:
+      - '.news-detail'
+      - '.post-content'
+      - '.content'
+      - 'article'
+      - 'main'
+    attachment_patterns:
+      - '\.(pdf|docx?)(?:$|[?&#])'
+      - '/storage/'
+      - '/uploads/'
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 20
+    max_docs: 500
+    min_chars: 300
+
+  - key: neu
+    name: Đại học Kinh tế Quốc dân
+    base_url: https://tuyensinh.neu.edu.vn
+    start_urls:
+      - https://tuyensinh.neu.edu.vn/vi/he-chinh-quy
+    id_prefix: education_neu
+    renderer: requests
+    detail_patterns:
+      - '^https://tuyensinh\.neu\.edu\.vn/vi/he-chinh-quy/[^/?#]+'
+    pagination_patterns:
+      - '^https://tuyensinh\.neu\.edu\.vn/vi/he-chinh-quy(?:\?|/).*(?:page|p)=?\d+'
+    exclude_patterns:
+      - '/search/'
+      - '/login'
+    list_link_selectors:
+      - 'main'
+      - '.news-list'
+      - '.content'
+      - 'body'
+    content_selectors:
+      - '.news-detail'
+      - '.detail-content'
+      - '.content'
+      - 'article'
+      - 'main'
+    attachment_patterns:
+      - '\.(pdf|docx?)(?:$|[?&#])'
+      - '/uploads/'
+      - '/upload/'
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 20
+    max_docs: 400
+    min_chars: 300
+
+  - key: ftu
+    name: Đại học Ngoại thương
+    base_url: https://qldt.ftu.edu.vn
+    start_urls:
+      - https://qldt.ftu.edu.vn/category/tuyen-sinh/
+    id_prefix: education_ftu
+    renderer: requests
+    detail_patterns:
+      # WordPress posts ở root qldt.ftu.edu.vn.
+      - '^https://qldt\.ftu\.edu\.vn/(?!category/|tag/|author/|wp-|page/|feed/|.*\.(?:pdf|docx?|jpg|jpeg|png|gif)(?:$|[?#]))[^?#/]+/?$'
+    pagination_patterns:
+      - '^https://qldt\.ftu\.edu\.vn/category/tuyen-sinh/page/\d+'
+    exclude_patterns:
+      - '/wp-json/'
+      - '/wp-admin/'
+      - '/wp-login'
+    list_link_selectors:
+      - 'main'
+      - '.posts'
+      - '.blog'
+      - '.site-content'
+    content_selectors:
+      - '.entry-content'
+      - '.post-content'
+      - 'article'
+      - 'main'
+    attachment_patterns:
+      - '/wp-content/uploads/'
+      - '\.(pdf|docx?)(?:$|[?&#])'
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 30
+    max_docs: 600
+    min_chars: 300

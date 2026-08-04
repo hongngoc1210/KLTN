@@ -1,0 +1,551 @@
+universities:
+  # ============================================================
+  # 1. TRƯỜNG ĐẠI HỌC CÔNG NGHỆ - ĐHQGHN
+  # ============================================================
+  - key: uet
+    name: Trường Đại học Công nghệ - ĐHQGHN
+    base_url: https://tuyensinh.uet.vnu.edu.vn
+    start_urls:
+      - https://tuyensinh.uet.vnu.edu.vn/category/tin-tuyen-sinh/
+      - https://tuyensinh.uet.vnu.edu.vn/category/ban-nen-biet/
+      - https://tuyensinh.uet.vnu.edu.vn/category/ket-qua-xet-tuyen/
+    id_prefix: education_uet
+    renderer: requests
+
+    detail_patterns:
+      - '^https://tuyensinh\.uet\.vnu\.edu\.vn/tin-tuyen-sinh/[^?#]+/?$'
+      - '^https://tuyensinh\.uet\.vnu\.edu\.vn/ban-nen-biet/[^?#]+/?$'
+      - '^https://tuyensinh\.uet\.vnu\.edu\.vn/ket-qua-xet-tuyen/[^?#]+/?$'
+
+    pagination_patterns:
+      - '^https://tuyensinh\.uet\.vnu\.edu\.vn/category/(?:tin-tuyen-sinh|ban-nen-biet|ket-qua-xet-tuyen)/page/\d+/?$'
+      - '^https://tuyensinh\.uet\.vnu\.edu\.vn/category/(?:tin-tuyen-sinh|ban-nen-biet|ket-qua-xet-tuyen)/\?.*\bpage=\d+'
+
+    exclude_patterns:
+      - '/wp-json/'
+      - '/wp-admin/'
+      - '/wp-login'
+      - '/tag/'
+      - '/author/'
+      - '/feed(?:/|$)'
+
+    list_link_selectors:
+      - 'main'
+      - '.site-main'
+      - '.posts'
+      - '.blog'
+      - '.content-area'
+
+    content_selectors:
+      - '.entry-content'
+      - '.post-content'
+      - '.elementor-widget-theme-post-content'
+      - 'article'
+      - 'main'
+
+    attachment_patterns:
+      - '/wp-content/uploads/'
+      - '\.(pdf|docx?)(?:$|[?&#])'
+
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 30
+    max_docs: 800
+    min_chars: 300
+
+  # ============================================================
+  # 2. TRƯỜNG ĐẠI HỌC KHOA HỌC TỰ NHIÊN - ĐHQG-HCM
+  # ============================================================
+  - key: hcmus
+    name: Trường Đại học Khoa học Tự nhiên - ĐHQG-HCM
+    base_url: https://tuyensinh.hcmus.edu.vn
+    start_urls:
+      - https://tuyensinh.hcmus.edu.vn/
+    id_prefix: education_hcmus
+    renderer: requests
+
+    # Các bài tuyển sinh hiện thường là slug ở root, chẳng hạn:
+    # /2026-phuong-huong-tuyen-sinh-trinh-do-dai-hoc-du-kien/
+    detail_patterns:
+      - '^https://tuyensinh\.hcmus\.edu\.vn/20\d{2}-[^?#]+/?$'
+      - '^https://tuyensinh\.hcmus\.edu\.vn/(?:thong-bao|phuong-huong|thong-tin|ket-qua|diem-chuan|nguong-dau-vao)-[^?#]+/?$'
+
+    pagination_patterns:
+      - '^https://tuyensinh\.hcmus\.edu\.vn/page/\d+/?$'
+      - '^https://tuyensinh\.hcmus\.edu\.vn/\?.*\bpage=\d+'
+
+    exclude_patterns:
+      - '/wp-json/'
+      - '/wp-admin/'
+      - '/wp-login'
+      - '/category/'
+      - '/tag/'
+      - '/author/'
+      - '/feed(?:/|$)'
+      - '/nganh-[^/?#]+/?$'
+      - '/lien-he(?:/|$)'
+
+    list_link_selectors:
+      - 'main'
+      - '.site-main'
+      - '.posts'
+      - '.elementor-posts-container'
+      - '.content-area'
+      - 'body'
+
+    content_selectors:
+      - '.entry-content'
+      - '.post-content'
+      - '.elementor-widget-theme-post-content'
+      - '.single-post-content'
+      - 'article'
+      - 'main'
+
+    attachment_patterns:
+      - '/wp-content/uploads/'
+      - '\.(pdf|docx?)(?:$|[?&#])'
+
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 30
+    max_docs: 800
+    min_chars: 300
+
+  # ============================================================
+  # 3. TRƯỜNG ĐẠI HỌC SƯ PHẠM HÀ NỘI
+  # ============================================================
+  - key: hnue
+    name: Trường Đại học Sư phạm Hà Nội
+    base_url: https://tuyensinh.hnue.edu.vn
+    start_urls:
+      - https://tuyensinh.hnue.edu.vn/
+    id_prefix: education_hnue
+    renderer: requests
+
+    detail_patterns:
+      - '^https://tuyensinh\.hnue\.edu\.vn/tin-tuc/\d+(?:\?.*)?$'
+      - '^https://tuyensinh\.hnue\.edu\.vn/thong-bao/\d+(?:\?.*)?$'
+
+    pagination_patterns:
+      - '^https://tuyensinh\.hnue\.edu\.vn/(?:tin-tuc|thong-bao)?/?\?.*(?:page|p)=\d+'
+      - '^https://tuyensinh\.hnue\.edu\.vn/(?:tin-tuc|thong-bao)/page/\d+'
+
+    exclude_patterns:
+      - '/dang-nhap'
+      - '/login'
+      - '/tim-kiem'
+      - '/search'
+      - '/video/'
+      - '/ket-noi-dong-hanh/'
+
+    list_link_selectors:
+      - 'main'
+      - '.news-list'
+      - '.list-news'
+      - '.content'
+      - '#content'
+      - 'body'
+
+    content_selectors:
+      - '.news-detail'
+      - '.detail-content'
+      - '.article-content'
+      - '.content'
+      - 'article'
+      - 'main'
+
+    attachment_patterns:
+      - '/uploads/'
+      - '/upload/'
+      - '\.(pdf|docx?)(?:$|[?&#])'
+
+    id_pattern: '/(?:tin-tuc|thong-bao)/(\d+)'
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 35
+    max_docs: 1000
+    min_chars: 300
+
+  # ============================================================
+  # 4. TRƯỜNG ĐẠI HỌC SƯ PHẠM TP.HCM
+  # ============================================================
+  - key: hcmue
+    name: Trường Đại học Sư phạm Thành phố Hồ Chí Minh
+    base_url: https://tuyensinh.hcmue.edu.vn
+    start_urls:
+      - https://tuyensinh.hcmue.edu.vn/?site=183
+    id_prefix: education_hcmue
+    renderer: requests
+
+    # Joomla: bài chi tiết dùng query option=com_content,
+    # view=article và id=<số>.
+    detail_patterns:
+      - '^https://tuyensinh\.hcmue\.edu\.vn/index\.php\?(?=.*option=com_content)(?=.*view=article)(?=.*id=\d+).*$'
+
+    pagination_patterns:
+      - '^https://tuyensinh\.hcmue\.edu\.vn/(?:index\.php)?\?.*(?:start|limitstart|page)=\d+'
+
+    exclude_patterns:
+      - 'view=category'
+      - 'view=featured'
+      - 'task=user'
+      - 'option=com_users'
+      - 'option=com_search'
+
+    list_link_selectors:
+      - 'main'
+      - '.blog'
+      - '.items-leading'
+      - '.items-row'
+      - '.content'
+      - 'body'
+
+    content_selectors:
+      - '.item-page'
+      - '.article-content'
+      - '.item-content'
+      - '.content'
+      - 'article'
+      - 'main'
+
+    attachment_patterns:
+      - '/images/'
+      - '/files/'
+      - '\.(pdf|docx?)(?:$|[?&#])'
+
+    id_pattern: '(?:[?&])id=(\d+)'
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 25
+    max_docs: 700
+    min_chars: 300
+
+  # ============================================================
+  # 5. TRƯỜNG ĐẠI HỌC THƯƠNG MẠI
+  # ============================================================
+  - key: tmu
+    name: Trường Đại học Thương mại
+    base_url: https://tuyensinh.tmu.edu.vn
+    start_urls:
+      - https://tuyensinh.tmu.edu.vn/danh-sach-tin/tuyen-sinh-3701
+    id_prefix: education_tmu
+    renderer: requests
+
+    detail_patterns:
+      - '^https://tuyensinh\.tmu\.edu\.vn/tin-tuc/[^?#]+-\d+/?$'
+
+    pagination_patterns:
+      - '^https://tuyensinh\.tmu\.edu\.vn/danh-sach-tin/tuyen-sinh-3701\?.*\bpage=\d+'
+
+    exclude_patterns:
+      - '/wp-json/'
+      - '/wp-admin/'
+      - '/wp-login'
+      - '/chuong-trinh/'
+      - '/danh-muc/'
+      - '/lien-he'
+      - '/search'
+
+    list_link_selectors:
+      - 'main'
+      - '.news-list'
+      - '.list-news'
+      - '.content'
+      - '#content'
+
+    content_selectors:
+      - '.news-detail'
+      - '.detail-content'
+      - '.article-content'
+      - '.content'
+      - 'article'
+      - 'main'
+
+    attachment_patterns:
+      - '/uploads/'
+      - '/upload/'
+      - '/files/'
+      - '\.(pdf|docx?)(?:$|[?&#])'
+
+    id_pattern: '-(\d+)$'
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 30
+    max_docs: 900
+    min_chars: 300
+
+  # ============================================================
+  # 6. TRƯỜNG ĐẠI HỌC GIAO THÔNG VẬN TẢI
+  # ============================================================
+  - key: utc
+    name: Trường Đại học Giao thông Vận tải
+    base_url: https://tuyensinh.utc.edu.vn
+    start_urls:
+      - https://tuyensinh.utc.edu.vn/
+    id_prefix: education_utc
+    renderer: requests
+
+    # Drupal dùng query q=tin-tuyen-sinh/<slug>.
+    # Dấu / có thể được mã hóa thành %2F.
+    detail_patterns:
+      - '^https://tuyensinh\.utc\.edu\.vn/\?q=tin-tuyen-sinh(?:%2F|/)[^&#]+'
+      - '^https://tuyensinh\.utc\.edu\.vn/\?q=thong-tin-tuyen-sinh(?:%2F|/)[^&#]+'
+
+    pagination_patterns:
+      - '^https://tuyensinh\.utc\.edu\.vn/\?.*(?:^|[&])page=\d+'
+      - '^https://tuyensinh\.utc\.edu\.vn/\?page=\d+'
+
+    exclude_patterns:
+      - 'q=hoi-dap'
+      - 'q=lien-he'
+      - 'q=user'
+      - 'q=search'
+      - 'q=nganh-tuyen-sinh'
+
+    list_link_selectors:
+      - 'main'
+      - '.view-content'
+      - '.views-row'
+      - '.content'
+      - '#content'
+      - 'body'
+
+    content_selectors:
+      - '.field-name-body'
+      - '.node-content'
+      - '.content'
+      - 'article'
+      - 'main'
+
+    attachment_patterns:
+      - '/sites/default/files/'
+      - '\.(pdf|docx?)(?:$|[?&#])'
+
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 40
+    max_docs: 1200
+    min_chars: 300
+
+  # ============================================================
+  # 7. TRƯỜNG ĐẠI HỌC NGÂN HÀNG TP.HCM
+  # ============================================================
+  - key: hub
+    name: Trường Đại học Ngân hàng Thành phố Hồ Chí Minh
+    base_url: https://tuyensinh.hub.edu.vn
+    start_urls:
+      - https://tuyensinh.hub.edu.vn/tin-tuyen-sinh
+    id_prefix: education_hub
+    renderer: requests
+
+    detail_patterns:
+      - '^https://tuyensinh\.hub\.edu\.vn/tin-tuyen-sinh/[^?#]+/?$'
+
+    pagination_patterns:
+      - '^https://tuyensinh\.hub\.edu\.vn/tin-tuyen-sinh\?.*\bpage=\d+'
+      - '^https://tuyensinh\.hub\.edu\.vn/tin-tuyen-sinh/page/\d+'
+
+    exclude_patterns:
+      - '/dang-ky-tu-van'
+      - '/tra-cuu'
+      - '/search'
+      - '/login'
+      - '/tag/'
+      - '/author/'
+
+    list_link_selectors:
+      - 'main'
+      - '.news-list'
+      - '.list-news'
+      - '.posts'
+      - '.content'
+      - 'body'
+
+    content_selectors:
+      - '.news-detail'
+      - '.detail-content'
+      - '.article-content'
+      - '.post-content'
+      - '.content'
+      - 'article'
+      - 'main'
+
+    attachment_patterns:
+      - '/uploads/'
+      - '/upload/'
+      - '/storage/'
+      - '\.(pdf|docx?)(?:$|[?&#])'
+
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 35
+    max_docs: 1000
+    min_chars: 300
+
+  # ============================================================
+  # 8. TRƯỜNG ĐẠI HỌC HÀNG HẢI VIỆT NAM
+  # ============================================================
+  - key: vimaru
+    name: Trường Đại học Hàng hải Việt Nam
+    base_url: https://tuyensinh.vimaru.edu.vn
+    start_urls:
+      - https://tuyensinh.vimaru.edu.vn/
+    id_prefix: education_vimaru
+    renderer: requests
+
+    detail_patterns:
+      - '^https://tuyensinh\.vimaru\.edu\.vn/tuyensinh/[^?#]+\.vmu$'
+      - '^https://tuyensinh\.vimaru\.edu\.vn/huongdan/[^?#]+\.vmu$'
+      - '^https://tuyensinh\.vimaru\.edu\.vn/chuongtrinhdaotao/[^?#]+\.vmu$'
+
+    pagination_patterns:
+      - '^https://tuyensinh\.vimaru\.edu\.vn/(?:tuyensinh|huongdan)(?:/|\?).*(?:page|p|start)=\d+'
+      - '^https://tuyensinh\.vimaru\.edu\.vn/\?.*\bpage=\d+'
+
+    exclude_patterns:
+      - '/login'
+      - '/search'
+      - '/lienhe'
+      - '/thongke'
+      - '\.(?:jpg|jpeg|png|gif|webp|svg)(?:$|[?#])'
+
+    list_link_selectors:
+      - 'main'
+      - '.news-list'
+      - '.list-news'
+      - '.content'
+      - '#content'
+      - 'body'
+
+    content_selectors:
+      - '.news-detail'
+      - '.detail-content'
+      - '.article-content'
+      - '.content'
+      - 'article'
+      - 'main'
+
+    attachment_patterns:
+      - '/uploads/'
+      - '/upload/'
+      - '/files/'
+      - '\.(pdf|docx?)(?:$|[?&#])'
+
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 40
+    max_docs: 1200
+    min_chars: 300
+
+  # ============================================================
+  # 9. TRƯỜNG ĐẠI HỌC SƯ PHẠM - ĐẠI HỌC ĐÀ NẴNG
+  # ============================================================
+  - key: ued_udn
+    name: Trường Đại học Sư phạm - Đại học Đà Nẵng
+    base_url: https://tuyensinh.ued.udn.vn
+    start_urls:
+      - https://tuyensinh.ued.udn.vn/index.php/category/tuyen-sinh/dai-hoc-chinh-quy/thong-tin-tuyen-sinh/
+    id_prefix: education_ued_udn
+    renderer: requests
+
+    # WordPress dạng:
+    # /index.php/2026/05/04/<slug>/
+    detail_patterns:
+      - '^https://tuyensinh\.ued\.udn\.vn/index\.php/20\d{2}/\d{2}/\d{2}/[^?#]+/?$'
+
+    pagination_patterns:
+      - '^https://tuyensinh\.ued\.udn\.vn/index\.php/category/tuyen-sinh/dai-hoc-chinh-quy/thong-tin-tuyen-sinh/page/\d+/?$'
+      - '^https://tuyensinh\.ued\.udn\.vn/index\.php/category/tuyen-sinh/dai-hoc-chinh-quy/thong-tin-tuyen-sinh/\?.*\bpage=\d+'
+
+    exclude_patterns:
+      - '/wp-json/'
+      - '/wp-admin/'
+      - '/wp-login'
+      - '/tag/'
+      - '/author/'
+      - '/feed(?:/|$)'
+
+    list_link_selectors:
+      - 'main'
+      - '.site-main'
+      - '.posts'
+      - '.blog'
+      - '.content-area'
+
+    content_selectors:
+      - '.entry-content'
+      - '.post-content'
+      - '.article-inner'
+      - 'article'
+      - 'main'
+
+    attachment_patterns:
+      - '/wp-content/uploads/'
+      - '\.(pdf|docx?)(?:$|[?&#])'
+
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 35
+    max_docs: 1000
+    min_chars: 300
+
+  # ============================================================
+  # 10. TRƯỜNG ĐẠI HỌC BÁCH KHOA - ĐẠI HỌC ĐÀ NẴNG
+  # ============================================================
+  - key: dut_udn
+    name: Trường Đại học Bách khoa - Đại học Đà Nẵng
+    base_url: https://tuyensinh.dut.udn.vn
+    start_urls:
+      - https://tuyensinh.dut.udn.vn/thong-bao-tuyen-sinh
+      - https://tuyensinh.dut.udn.vn/phuong-thuc-tuyen-sinh
+    id_prefix: education_dut_udn
+    renderer: requests
+
+    # Cổng tuyển sinh dùng nhiều trang landing ở root.
+    detail_patterns:
+      - '^https://tuyensinh\.dut\.udn\.vn/(?!thong-bao-tuyen-sinh(?:$|[/?#])|phuong-thuc-tuyen-sinh(?:$|[/?#])|dangkyxettuyen/|login|lien-he|search|.*\.(?:jpg|jpeg|png|gif|webp|svg)(?:$|[?#]))[^?#/]+/?$'
+      - '^https://tuyensinh\.dut\.udn\.vn/tin-tuc/[^?#]+/?$'
+      - '^https://tuyensinh\.dut\.udn\.vn/thong-bao/[^?#]+/?$'
+
+    pagination_patterns:
+      - '^https://tuyensinh\.dut\.udn\.vn/thong-bao-tuyen-sinh\?.*\bpage=\d+'
+      - '^https://tuyensinh\.dut\.udn\.vn/(?:tin-tuc|thong-bao)/page/\d+'
+
+    exclude_patterns:
+      - '/dangkyxettuyen/'
+      - '/dang-nhap'
+      - '/login'
+      - '/lien-he'
+      - '/search'
+      - '/api/'
+      - '/admin/'
+
+    list_link_selectors:
+      - 'main'
+      - '.news-list'
+      - '.list-news'
+      - '.content'
+      - '#content'
+      - 'body'
+
+    content_selectors:
+      - '.news-detail'
+      - '.detail-content'
+      - '.article-content'
+      - '.post-content'
+      - '.content'
+      - 'article'
+      - 'main'
+
+    attachment_patterns:
+      - '/uploads/'
+      - '/upload/'
+      - '/storage/'
+      - '/files/'
+      - '\.(pdf|docx?)(?:$|[?&#])'
+
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 30
+    max_docs: 900
+    min_chars: 300

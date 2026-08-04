@@ -1,0 +1,191 @@
+_defaults: &defaults
+  renderer: requests
+  pagination_patterns:
+    - '(?:[?&](?:page|paged|trang|Page|PageIndex)=\d+)'
+    - '/(?:page|trang)/\d+/?(?:\?.*)?$'
+  exclude_patterns:
+    - '/wp-admin(?:/|$)'
+    - '/wp-login'
+    - '/wp-json/'
+    - '/login(?:/|$)'
+    - '/dang-nhap(?:/|$)'
+    - '/search(?:/|$)'
+    - '/tim-kiem(?:/|$)'
+    - '/lien-he(?:/|$)'
+    - '/contact(?:/|$)'
+    - '/tag/'
+    - '/author/'
+    - '/feed(?:/|$)'
+    - '/nganh-dao-tao(?:/|$)'
+    - '/chuong-trinh-dao-tao(?:/|$)'
+    - '/gioi-thieu(?:/|$)'
+  list_link_selectors:
+    - 'main'
+    - '#content'
+    - '.content'
+    - '.site-content'
+    - '.news-list'
+    - '.list-news'
+    - '.posts'
+    - '.post-list'
+    - '.article-list'
+    - '.view-content'
+    - '.elementor-posts-container'
+    - 'body'
+  content_selectors:
+    - '.news-detail'
+    - '.detail-content'
+    - '.content-detail'
+    - '.article-content'
+    - '.post-content'
+    - '.entry-content'
+    - '.single-content'
+    - '.elementor-widget-theme-post-content'
+    - '.field-name-body'
+    - 'article'
+    - 'main'
+  remove_selectors:
+    - '.related-news'
+    - '.related-posts'
+    - '.share'
+    - '.social-share'
+    - '.sidebar'
+    - '.comments'
+  attachment_patterns:
+    - '/uploads/'
+    - '/upload/'
+    - '/files/'
+    - '/FileUpload/'
+    - '/wp-content/uploads/'
+    - '/documents/'
+    - '/media/'
+    - '\.(pdf|docx?)(?:$|[?&#])'
+  prefer_attachments: true
+  allow_html_fallback: true
+  max_pages: 20
+  max_docs: 500
+  min_chars: 300
+  enabled: true
+
+universities:
+  # 1. Trường Đại học Ngoại ngữ - ĐHQGHN
+  - <<: *defaults
+    key: ulis_vnu
+    name: Trường Đại học Ngoại ngữ - ĐHQGHN
+    base_url: https://ulis.vnu.edu.vn
+    start_urls:
+      - https://ulis.vnu.edu.vn/tuyensinh2026/
+    id_prefix: education_ulis_vnu
+    detail_patterns:
+      - '^https://ulis\.vnu\.edu\.vn/[^?#]*(?:tuyen-sinh|tuyensinh|xet-tuyen|xettuyen|quy-che|de-an|thong-bao|phuong-thuc|diem-chuan|diem-san|nguong|nhap-hoc|nguyen-vong|nang-khieu|hoc-ba)[^?#]*(?:\?.*)?$'
+
+  # 2. Trường Đại học Kinh tế - ĐHQGHN
+  - <<: *defaults
+    key: ueb_vnu
+    name: Trường Đại học Kinh tế - ĐHQGHN
+    base_url: https://ueb.edu.vn
+    start_urls:
+      - https://ueb.edu.vn/Tuyen-Sinh/UEB/thong-tin-tuyen-sinh/1730/1731/1737
+    id_prefix: education_ueb_vnu
+    detail_patterns:
+      - '^https://ueb\.edu\.vn/(?:Tuyen-Sinh|Tin-Tuc)/UEB/[^?#]+(?:\?.*)?$'
+
+  # 3. Trường Đại học Mỏ - Địa chất
+  - <<: *defaults
+    key: humg
+    name: Trường Đại học Mỏ - Địa chất
+    base_url: https://tuyensinh.humg.edu.vn
+    start_urls:
+      - https://tuyensinh.humg.edu.vn/Pages/home.aspx
+    id_prefix: education_humg
+    detail_patterns:
+      - '^https://tuyensinh\.humg\.edu\.vn/(?!$|Pages/home\.aspx$|(?:wp-admin|wp-login|wp-json|tag|author|search|tim-kiem|lien-he|gioi-thieu)(?:/|$)|.*\.(?:pdf|docx?|jpg|jpeg|png|gif|webp|svg)(?:$|[?#]))[^?#]+(?:\?.*)?$'
+
+  # 4. Trường Đại học Điện lực
+  - <<: *defaults
+    key: epu
+    name: Trường Đại học Điện lực
+    base_url: https://tuyensinh.epu.edu.vn
+    start_urls:
+      - https://tuyensinh.epu.edu.vn/
+    id_prefix: education_epu
+    detail_patterns:
+      - '^https://tuyensinh\.epu\.edu\.vn/(?!$|Pages/home\.aspx$|(?:wp-admin|wp-login|wp-json|tag|author|search|tim-kiem|lien-he|gioi-thieu)(?:/|$)|.*\.(?:pdf|docx?|jpg|jpeg|png|gif|webp|svg)(?:$|[?#]))[^?#]+(?:\?.*)?$'
+
+  # 5. Học viện Nông nghiệp Việt Nam
+  - <<: *defaults
+    key: vnua
+    name: Học viện Nông nghiệp Việt Nam
+    base_url: https://tuyensinh.vnua.edu.vn
+    start_urls:
+      - https://tuyensinh.vnua.edu.vn/
+    id_prefix: education_vnua
+    renderer: playwright
+    detail_patterns:
+      - '^https://tuyensinh\.vnua\.edu\.vn/(?!$|Pages/home\.aspx$|(?:wp-admin|wp-login|wp-json|tag|author|search|tim-kiem|lien-he|gioi-thieu)(?:/|$)|.*\.(?:pdf|docx?|jpg|jpeg|png|gif|webp|svg)(?:$|[?#]))[^?#]+(?:\?.*)?$'
+
+  # 6. Trường Đại học Lâm nghiệp
+  - <<: *defaults
+    key: vnuf
+    name: Trường Đại học Lâm nghiệp
+    base_url: https://tuyensinh.vnuf.edu.vn
+    start_urls:
+      - https://tuyensinh.vnuf.edu.vn/
+    id_prefix: education_vnuf
+    detail_patterns:
+      - '^https://tuyensinh\.vnuf\.edu\.vn/(?!$|Pages/home\.aspx$|(?:wp-admin|wp-login|wp-json|tag|author|search|tim-kiem|lien-he|gioi-thieu)(?:/|$)|.*\.(?:pdf|docx?|jpg|jpeg|png|gif|webp|svg)(?:$|[?#]))[^?#]+(?:\?.*)?$'
+
+  # 7. Trường Đại học Mở Hà Nội
+  - <<: *defaults
+    key: hou
+    name: Trường Đại học Mở Hà Nội
+    base_url: https://tuyensinh.hou.edu.vn
+    start_urls:
+      - https://tuyensinh.hou.edu.vn/
+    id_prefix: education_hou
+    detail_patterns:
+      - '^https://tuyensinh\.hou\.edu\.vn/(?!$|Pages/home\.aspx$|(?:wp-admin|wp-login|wp-json|tag|author|search|tim-kiem|lien-he|gioi-thieu)(?:/|$)|.*\.(?:pdf|docx?|jpg|jpeg|png|gif|webp|svg)(?:$|[?#]))[^?#]+(?:\?.*)?$'
+
+  # 8. Học viện Chính sách và Phát triển
+  - <<: *defaults
+    key: apd
+    name: Học viện Chính sách và Phát triển
+    base_url: https://tuyensinh.apd.edu.vn
+    start_urls:
+      - https://tuyensinh.apd.edu.vn/
+    id_prefix: education_apd
+    detail_patterns:
+      - '^https://tuyensinh\.apd\.edu\.vn/(?!$|Pages/home\.aspx$|(?:wp-admin|wp-login|wp-json|tag|author|search|tim-kiem|lien-he|gioi-thieu)(?:/|$)|.*\.(?:pdf|docx?|jpg|jpeg|png|gif|webp|svg)(?:$|[?#]))[^?#]+(?:\?.*)?$'
+
+  # 9. Trường Đại học Thủy lợi
+  - <<: *defaults
+    key: tlu
+    name: Trường Đại học Thủy lợi
+    base_url: https://www.tlu.edu.vn
+    start_urls:
+      - https://www.tlu.edu.vn/tuyen-sinh
+    id_prefix: education_tlu
+    detail_patterns:
+      - '^https://www\.tlu\.edu\.vn/[^?#]*(?:tuyen-sinh|tuyensinh|xet-tuyen|xettuyen|quy-che|de-an|thong-bao|phuong-thuc|diem-chuan|diem-san|nguong|nhap-hoc|nguyen-vong|nang-khieu|hoc-ba)[^?#]*(?:\?.*)?$'
+
+  # 10. Trường Đại học Bình Dương
+  - <<: *defaults
+    key: bdu
+    name: Trường Đại học Bình Dương
+    base_url: https://tuyensinh.bdu.edu.vn
+    start_urls:
+      - https://tuyensinh.bdu.edu.vn/
+    id_prefix: education_bdu
+    detail_patterns:
+      - '^https://tuyensinh\.bdu\.edu\.vn/(?!$|Pages/home\.aspx$|(?:wp-admin|wp-login|wp-json|tag|author|search|tim-kiem|lien-he|gioi-thieu)(?:/|$)|.*\.(?:pdf|docx?|jpg|jpeg|png|gif|webp|svg)(?:$|[?#]))[^?#]+(?:\?.*)?$'
+
+  # 11. Trường Đại học Công nghệ Giao thông Vận tải
+  - <<: *defaults
+    key: utt
+    name: Trường Đại học Công nghệ Giao thông Vận tải
+    base_url: https://utt.edu.vn
+    start_urls:
+      - https://utt.edu.vn/vn/tuyensinh
+    id_prefix: education_utt
+    detail_patterns:
+      - '^https://utt\.edu\.vn/[^?#]*(?:tuyen-sinh|tuyensinh|xet-tuyen|xettuyen|quy-che|de-an|thong-bao|phuong-thuc|diem-chuan|diem-san|nguong|nhap-hoc|nguyen-vong|nang-khieu|hoc-ba)[^?#]*(?:\?.*)?$'

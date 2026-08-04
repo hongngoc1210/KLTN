@@ -1,0 +1,304 @@
+universities:
+  - key: ueh
+    name: Đại học Kinh tế Thành phố Hồ Chí Minh
+    base_url: https://tuyensinh.ueh.edu.vn
+    start_urls:
+      - https://tuyensinh.ueh.edu.vn/danh-muc-bai-viet/dang-tuyen-sinh/dang-tuyen-sinh-dhcq/
+    id_prefix: education_ueh
+    renderer: requests
+    detail_patterns:
+      - '^https://tuyensinh\.ueh\.edu\.vn/bai-viet/[^?#]+/?$'
+    pagination_patterns:
+      - '^https://tuyensinh\.ueh\.edu\.vn/danh-muc-bai-viet/dang-tuyen-sinh/dang-tuyen-sinh-dhcq/page/\d+/?$'
+      - '^https://tuyensinh\.ueh\.edu\.vn/danh-muc-bai-viet/dang-tuyen-sinh/dang-tuyen-sinh-dhcq/\?.*\bpage=\d+'
+    exclude_patterns:
+      - '/wp-json/'
+      - '/wp-admin/'
+      - '/wp-login'
+      - '/tag/'
+      - '/author/'
+      - '/feed(?:/|$)'
+    list_link_selectors:
+      - 'main'
+      - '.elementor-posts-container'
+      - '.post-list'
+      - '.blog-list'
+      - '.site-content'
+    content_selectors:
+      - '.elementor-widget-theme-post-content'
+      - '.entry-content'
+      - '.post-content'
+      - '.single-post-content'
+      - 'article'
+      - 'main'
+    attachment_patterns:
+      - '/wp-content/uploads/'
+      - '\.(pdf|docx?)(?:$|[?&#])'
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 30
+    max_docs: 800
+    min_chars: 300
+
+  - key: uel
+    name: Trường Đại học Kinh tế - Luật, ĐHQG-HCM
+    base_url: https://tuyensinh.uel.edu.vn
+    start_urls:
+      - https://tuyensinh.uel.edu.vn/category/thong-bao-tuyen-sinh/dai-hoc-chinh-quy/
+    id_prefix: education_uel
+    renderer: requests
+    detail_patterns:
+      - '^https://tuyensinh\.uel\.edu\.vn/(?!category/|tag/|author/|page/|wp-|feed/|.*\.(?:pdf|docx?|jpg|jpeg|png|gif|webp)(?:$|[?#]))[^?#/]+/?$'
+    pagination_patterns:
+      - '^https://tuyensinh\.uel\.edu\.vn/category/thong-bao-tuyen-sinh/dai-hoc-chinh-quy/page/\d+/?$'
+      - '^https://tuyensinh\.uel\.edu\.vn/category/thong-bao-tuyen-sinh/dai-hoc-chinh-quy/\?.*\bpage=\d+'
+    exclude_patterns:
+      - '/wp-json/'
+      - '/wp-admin/'
+      - '/wp-login'
+      - '/lien-he(?:/|$)'
+      - '/gioi-thieu(?:/|$)'
+      - '/nganh-dao-tao(?:/|$)'
+    list_link_selectors:
+      - 'main'
+      - '.site-main'
+      - '.posts'
+      - '.blog'
+      - '.content-area'
+    content_selectors:
+      - '.entry-content'
+      - '.post-content'
+      - '.elementor-widget-theme-post-content'
+      - 'article'
+      - 'main'
+    attachment_patterns:
+      - '/wp-content/uploads/'
+      - '\.(pdf|docx?)(?:$|[?&#])'
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 30
+    max_docs: 800
+    min_chars: 300
+
+  - key: tdtu
+    name: Trường Đại học Tôn Đức Thắng
+    base_url: https://admission.tdtu.edu.vn
+    start_urls:
+      - https://admission.tdtu.edu.vn/dai-hoc
+    id_prefix: education_tdtu
+    renderer: requests
+    detail_patterns:
+      - '^https://admission\.tdtu\.edu\.vn/dai-hoc/(?!$)[^?#]+'
+    pagination_patterns:
+      - '^https://admission\.tdtu\.edu\.vn/dai-hoc(?:/|\?).*(?:page|p)=?\d+'
+      - '^https://admission\.tdtu\.edu\.vn/dai-hoc/page/\d+'
+    exclude_patterns:
+      - '/user/'
+      - '/search/'
+      - '/login'
+      - '/node/'
+      - '\.(?:jpg|jpeg|png|gif|webp|svg)(?:$|[?#])'
+    list_link_selectors:
+      - 'main'
+      - '.view-content'
+      - '.views-row'
+      - '.content'
+      - 'body'
+    content_selectors:
+      - '.field-name-body'
+      - '.node__content'
+      - '.node-content'
+      - '.detail-content'
+      - 'article'
+      - 'main'
+    attachment_patterns:
+      - '/sites/default/files/'
+      - '/uploads/'
+      - '\.(pdf|docx?)(?:$|[?&#])'
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 25
+    max_docs: 700
+    min_chars: 300
+
+  - key: ctu
+    name: Đại học Cần Thơ
+    base_url: https://tuyensinh.ctu.edu.vn
+    start_urls:
+      - https://tuyensinh.ctu.edu.vn/
+      - https://tuyensinh.ctu.edu.vn/84-thong-tin-tuyen-sinh.html
+      - https://tuyensinh.ctu.edu.vn/dai-hoc-chinh-quy.html
+    id_prefix: education_ctu
+    renderer: requests
+    detail_patterns:
+      - '^https://tuyensinh\.ctu\.edu\.vn/\d+-[^/?#]+/\d+-[^?#]+\.html$'
+      - '^https://tuyensinh\.ctu\.edu\.vn/chuong-trinh-dai-tra/\d+-[^/?#]+/\d+-[^?#]+\.html$'
+      - '^https://tuyensinh\.ctu\.edu\.vn/dai-hoc-chinh-quy/[^?#]+\.html$'
+    pagination_patterns:
+      - '^https://tuyensinh\.ctu\.edu\.vn/84-thong-tin-tuyen-sinh(?:/|\?).*(?:start|page|limitstart)=\d+'
+      - '^https://tuyensinh\.ctu\.edu\.vn/\?.*(?:start|page|limitstart)=\d+'
+    exclude_patterns:
+      - '/component/'
+      - '/administrator/'
+      - '/login'
+      - '/search'
+      - '\.(?:jpg|jpeg|png|gif|webp|svg)(?:$|[?#])'
+    list_link_selectors:
+      - 'main'
+      - '.item-list'
+      - '.blog'
+      - '.category-list'
+      - '.content'
+      - '#content'
+      - 'body'
+    content_selectors:
+      - '.item-page'
+      - '.article-content'
+      - '.contentpane'
+      - '.entry-content'
+      - 'article'
+      - 'main'
+    attachment_patterns:
+      - '/images/upload/'
+      - '/images/files/'
+      - '/media/'
+      - '\.(pdf|docx?)(?:$|[?&#])'
+    id_pattern: '/(\d+)-[^/?#]+\.html$'
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 30
+    max_docs: 1000
+    min_chars: 300
+
+  - key: hcmut
+    name: Trường Đại học Bách khoa, ĐHQG-HCM
+    base_url: https://hcmut.edu.vn
+    start_urls:
+      - https://hcmut.edu.vn/ds-tin-tuc/621?lang=vi
+      - https://hcmut.edu.vn/tuyen-sinh/dai-hoc-chinh-quy/gioi-thieu-chung
+    id_prefix: education_hcmut
+    renderer: requests
+    detail_patterns:
+      - '^https://hcmut\.edu\.vn/tuyen-sinh/dai-hoc-chinh-quy/[^?#]+'
+      - '^https://hcmut\.edu\.vn/tintuc/[^/?#]+'
+      - '^https://hcmut\.edu\.vn/news/item/\d+'
+    pagination_patterns:
+      - '^https://hcmut\.edu\.vn/ds-tin-tuc/621\?.*(?:page|p|start|offset)=\d+'
+      - '^https://hcmut\.edu\.vn/ds-tin-tuc/621/page/\d+'
+    exclude_patterns:
+      - '/login'
+      - '/register'
+      - '/search'
+      - '/user/'
+      - '\.(?:jpg|jpeg|png|gif|webp|svg)(?:$|[?#])'
+    list_link_selectors:
+      - 'main'
+      - '.news-list'
+      - '.list-news'
+      - '.content'
+      - '#content'
+      - 'body'
+    content_selectors:
+      - '.news-detail'
+      - '.detail-content'
+      - '.article-content'
+      - '.post-content'
+      - 'article'
+      - 'main'
+    attachment_patterns:
+      - '/uploads/'
+      - '/upload/'
+      - '/storage/'
+      - '\.(pdf|docx?)(?:$|[?&#])'
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 25
+    max_docs: 700
+    min_chars: 300
+
+  - key: ussh_vnu
+    name: Trường Đại học Khoa học Xã hội và Nhân văn, ĐHQGHN
+    base_url: https://ussh.vnu.edu.vn
+    start_urls:
+      - https://ussh.vnu.edu.vn/vi/news/dao-tao/
+    id_prefix: education_ussh_vnu
+    renderer: requests
+    detail_patterns:
+      - '^https://ussh\.vnu\.edu\.vn/vi/news/dao-tao/[^?#]+-\d+\.html$'
+    pagination_patterns:
+      - '^https://ussh\.vnu\.edu\.vn/vi/news/dao-tao/page-\d+/?$'
+      - '^https://ussh\.vnu\.edu\.vn/vi/news/dao-tao/\?.*(?:page|p)=\d+'
+    exclude_patterns:
+      - '/rss/'
+      - '/author/'
+      - '/search/'
+      - '/users/'
+      - '\.(?:jpg|jpeg|png|gif|webp|svg)(?:$|[?#])'
+    list_link_selectors:
+      - '.news-list'
+      - '.view-content'
+      - '.panel-body'
+      - 'main'
+      - '#content'
+    content_selectors:
+      - '.news-body'
+      - '.bodytext'
+      - '.detail-content'
+      - '.news-detail'
+      - 'article'
+      - 'main'
+    attachment_patterns:
+      - '/uploads/ussh/'
+      - '/uploads/'
+      - '\.(pdf|docx?)(?:$|[?&#])'
+    id_pattern: '-(\d+)\.html$'
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 40
+    max_docs: 1200
+    min_chars: 300
+
+  - key: hcmussh
+    name: Trường Đại học Khoa học Xã hội và Nhân văn, ĐHQG-HCM
+    base_url: https://hcmussh.edu.vn
+    start_urls:
+      - https://hcmussh.edu.vn/tin-tuc
+    id_prefix: education_hcmussh
+    renderer: requests
+    detail_patterns:
+      - '^https://(?:www\.)?hcmussh\.edu\.vn/tin-tuc/(?!$)[^/?#]+/?$'
+    pagination_patterns:
+      - '^https://(?:www\.)?hcmussh\.edu\.vn/tin-tuc\?.*\bpage=\d+'
+      - '^https://(?:www\.)?hcmussh\.edu\.vn/tin-tuc/page/\d+'
+    exclude_patterns:
+      - '/tim-kiem'
+      - '/search'
+      - '/tag/'
+      - '/author/'
+      - '/feed/'
+      - '\.(?:jpg|jpeg|png|gif|webp|svg)(?:$|[?#])'
+    list_link_selectors:
+      - 'main'
+      - '.news-list'
+      - '.list-news'
+      - '.posts'
+      - '.content'
+      - 'body'
+    content_selectors:
+      - '.news-detail'
+      - '.detail-content'
+      - '.article-content'
+      - '.post-content'
+      - '.content-news'
+      - 'article'
+      - 'main'
+    attachment_patterns:
+      - '/uploads/'
+      - '/upload/'
+      - '/storage/'
+      - '\.(pdf|docx?)(?:$|[?&#])'
+    prefer_attachments: true
+    allow_html_fallback: true
+    max_pages: 35
+    max_docs: 1000
+    min_chars: 300
