@@ -1,0 +1,43 @@
+# Copy this file to configs/<model_name>.toml and change the values below.
+
+[data]
+train_path = "qa_models/data/train.json"
+validation_path = "qa_models/data/dev.json"
+test_path = "qa_models/data/test.json"
+id_field = "qa_id"
+context_field = "content"
+question_field = "question"
+answer_field = "answer"
+label_field = "label"
+
+[model]
+name = "replace_me"
+checkpoint = "organization/checkpoint"
+# Format: Python module path:class name. No central registry needs editing.
+adapter = "qa_models.models.replace_me:ReplaceMeAdapter"
+family = "encoder_classifier" # or "generative_llm"
+method = "finetune"           # finetune, zero_shot, few_shot, sft, qlora
+
+[model.params]
+# Model-specific values belong here, for example:
+trust_remote_code = false
+
+[training]
+enabled = true
+seed = 42
+epochs = 3
+learning_rate = 0.00002
+train_batch_size = 16
+eval_batch_size = 32
+gradient_accumulation_steps = 1
+max_length = 512
+output_dir = "qa_models/outputs/replace_me"
+
+[training.params]
+# Model-specific training values belong here.
+
+[evaluation]
+split = "test"
+batch_size = 32
+save_predictions = true
+

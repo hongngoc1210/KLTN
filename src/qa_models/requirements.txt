@@ -1,0 +1,20 @@
+# Runtime: Python 3.13.9
+# PhoBERT word segmentation additionally requires Java 8+ (tested with Java 21).
+
+# Training stack
+torch==2.13.0
+transformers==5.14.1
+datasets==4.4.0
+accelerate==1.15.0
+
+# Hugging Face model/tokenizer storage
+huggingface-hub==1.24.0
+safetensors==0.8.0
+tokenizers==0.22.1
+
+# Data, metrics, and progress display
+numpy==2.3.4
+tqdm==4.67.1
+
+# Vietnamese word segmentation for PhoBERT
+py-vncorenlp==0.1.4
