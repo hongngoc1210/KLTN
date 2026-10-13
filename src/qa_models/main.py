@@ -61,6 +61,20 @@ def _direct_parser() -> argparse.ArgumentParser:
         default="all",
         help="Run training, evaluation, or both (default: all).",
     )
+    evaluation_group = parser.add_mutually_exclusive_group()
+    evaluation_group.add_argument(
+        "--shuffle-context",
+        action="store_true",
+        help=(
+            "Evaluate after deterministically swapping contexts between samples. "
+            "Training data is never shuffled."
+        ),
+    )
+    evaluation_group.add_argument(
+        "--ablation-suite",
+        action="store_true",
+        help="Evaluate full input and all shortcut/context ablations.",
+    )
     return parser
 
 
@@ -82,8 +96,17 @@ def main() -> None:
     logger.info("Checkpoint: %s", config.model.checkpoint)
     logger.info("Adapter: %s", config.model.adapter)
     logger.info("Stage: %s", args.stage)
+    if args.shuffle_context:
+        logger.info("Evaluation ablation: shuffled context")
+    if args.ablation_suite:
+        logger.info("Evaluation ablation: full suite")
 
-    result = run_experiment(config, args.stage)
+    result = run_experiment(
+        config,
+        args.stage,
+        shuffle_context=args.shuffle_context,
+        ablation_suite=args.ablation_suite,
+    )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

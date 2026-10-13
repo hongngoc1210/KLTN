@@ -67,6 +67,7 @@ hallucination của **answer so với content**, trong ngữ cảnh của questi
 - `configs/_template.toml`: mẫu để tạo config mới.
 - `models/base.py`: interface bắt buộc của adapter.
 - `models/_template.py`: mẫu file model mới.
+- `prompts/layer1_zero_shot.py`: prompt dùng chung, có version, cho Qwen/Gemma.
 - `src/data.py`: đọc và kiểm tra JSON, duplicate ID, field và label.
 - `src/pipeline.py`: điều phối train/evaluate, không chứa code model.
 - `src/metrics.py`: metrics chung để so sánh công bằng.
@@ -96,9 +97,10 @@ Quy ước file đề xuất cho danh sách model:
 | `qwen35_4b` | `Qwen/Qwen3.5-4B` | generative / zero/few-shot, SFT/QLoRA |
 | `gemma_4_e4b_it` | `google/gemma-4-E4B-it` | generative / zero/few-shot |
 
-Với Qwen, nên dùng các config riêng theo phương pháp, ví dụ
-`qwen35_4b_zero_shot.toml` và `qwen35_4b_qlora.toml`, nhưng cả hai có thể trỏ
-tới cùng `models/qwen35_4b.py`.
+Với Qwen, hai phương pháp được tách hoàn toàn: zero-shot dùng
+`models/qwen35_4b.py` + `qwen35_4b_zero_shot.toml`, còn SFT bằng QLoRA dùng
+`models/qwen35_4b_qlora.py` + `qwen35_4b_qlora.toml`. Hai cấu hình lưu artifact
+vào hai thư mục khác nhau.
 
 ## Lệnh chạy
 
@@ -110,6 +112,42 @@ python qa_models/main.py \
   --config-file qa_models/configs/layer1/phobert_base_v2.toml \
   --stage all
 
+# XLM-R-base tầng 1 (không cần VnCoreNLP).
+python qa_models/main.py \
+  --config-file qa_models/configs/layer1/xlmr_base.toml \
+  --stage all
+
+# XLM-R-large tầng 1; config mặc định dùng fp16 và gradient checkpointing.
+python qa_models/main.py \
+  --config-file qa_models/configs/layer1/xlmr_large.toml \
+  --stage all
+
+# mDeBERTa-v3-base và mmBERT-base: fine-tune bốn lớp.
+python qa_models/main.py \
+  --config-file qa_models/configs/layer1/mdeberta_v3_base.toml \
+  --stage all
+python qa_models/main.py \
+  --config-file qa_models/configs/layer1/mmbert_base.toml \
+  --stage all
+
+# Qwen3.5-4B và Gemma-4-E4B-it: zero-shot, không train.
+python qa_models/main.py \
+  --config-file qa_models/configs/layer1/qwen35_4b_zero_shot.toml \
+  --stage evaluate
+python qa_models/main.py \
+  --config-file qa_models/configs/layer1/gemma4_e4b_zero_shot.toml \
+  --stage evaluate
+
+# Qwen3.5-4B: supervised fine-tuning thật bằng QLoRA, sau đó đánh giá test.
+python qa_models/main.py \
+  --config-file qa_models/configs/layer1/qwen35_4b_qlora.toml \
+  --stage all
+
+# Chỉ đánh giá lại LoRA artifact đã train và lưu.
+python qa_models/main.py \
+  --config-file qa_models/configs/layer1/qwen35_4b_qlora.toml \
+  --stage evaluate
+
 # Chỉ train hoặc chỉ evaluate artifact đã lưu.
 python qa_models/main.py \
   --config-file qa_models/configs/layer1/phobert_base_v2.toml \
@@ -117,6 +155,21 @@ python qa_models/main.py \
 python qa_models/main.py \
   --config-file qa_models/configs/layer1/phobert_base_v2.toml \
   --stage evaluate
+
+# Ablation: giữ nguyên question/answer/label nhưng tráo context trong test.
+# Kết quả được lưu riêng thành metrics_shuffled_context.json và
+# predictions_shuffled_context.json.
+python qa_models/main.py \
+  --config-file qa_models/configs/layer1/phobert_base_v2.toml \
+  --stage evaluate \
+  --shuffle-context
+
+# Chạy toàn bộ kiểm tra shortcut/context trong một lần và tạo
+# ablation_summary.json để so sánh tự động.
+python qa_models/main.py \
+  --config-file qa_models/configs/layer1/phobert_base_v2.toml \
+  --stage evaluate \
+  --ablation-suite
 
 # Kiểm tra schema và thống kê nhãn; chưa cần adapter hoạt động.
 python -m qa_models.main inspect-data --config qa_models/configs/<model>.toml

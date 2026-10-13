@@ -30,6 +30,17 @@ def _parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         "--stage", choices=("train", "evaluate", "all"), default="all"
     )
+    evaluation_group = run_parser.add_mutually_exclusive_group()
+    evaluation_group.add_argument(
+        "--shuffle-context",
+        action="store_true",
+        help="Evaluate with contexts deterministically swapped between samples",
+    )
+    evaluation_group.add_argument(
+        "--ablation-suite",
+        action="store_true",
+        help="Evaluate full input and all shortcut/context ablations",
+    )
     return parser
 
 
@@ -54,6 +65,11 @@ def main() -> None:
             "status": "valid",
         }
     else:
-        result = run_experiment(config, args.stage)
+        result = run_experiment(
+            config,
+            args.stage,
+            shuffle_context=args.shuffle_context,
+            ablation_suite=args.ablation_suite,
+        )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 

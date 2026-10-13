@@ -11,6 +11,11 @@ accelerate==1.15.0
 huggingface-hub==1.24.0
 safetensors==0.8.0
 tokenizers==0.22.1
+sentencepiece==0.2.2
+
+# 4-bit inference and QLoRA supervised fine-tuning
+bitsandbytes==0.50.2
+peft==0.21.2
 
 # Data, metrics, and progress display
 numpy==2.3.4

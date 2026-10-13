@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 from pathlib import Path
@@ -206,7 +207,11 @@ class EncoderLayer1Adapter(BaseModelAdapter):
         return result
     
     # training arguments
-    def _create_training_arguments(self) -> TrainingArguments:
+    def _create_training_arguments(
+        self,
+        *,
+        for_inference: bool = False,
+    ) -> TrainingArguments:
         # Lấy cấu hình huấn luyện
         training = self.config.training
         params = training.params
@@ -228,22 +233,28 @@ class EncoderLayer1Adapter(BaseModelAdapter):
                 training.gradient_accumulation_steps
             ),
 
+            # Giảm activation memory cho các encoder lớn như XLM-R-large.
+            gradient_checkpointing=bool(
+                params.get("gradient_checkpointing", False)
+            ),
+
             # Regularization và learning rate warmup
             weight_decay=float(params.get("weight_decay", 0.01)),
             warmup_steps=int(params.get("warmup_steps", 0)),
 
-            # Đánh giá và lưu checkpoint sau mỗi epoch
-            eval_strategy="epoch",
-            save_strategy="epoch",
+            # Inference không có eval_dataset, vì vậy Trainer phải tắt lịch
+            # evaluate/save. Khi train, vẫn đánh giá và lưu sau mỗi epoch.
+            eval_strategy="no" if for_inference else "epoch",
+            save_strategy="no" if for_inference else "epoch",
 
             # Ghi log sau mỗi N steps
             logging_strategy="steps",
             logging_steps=int(params.get("logging_steps", 50)),
 
             # Tự động chọn checkpoint có Macro-F1 cao nhất
-            load_best_model_at_end=True,
-            metric_for_best_model="macro_f1",
-            greater_is_better=True,
+            load_best_model_at_end=not for_inference,
+            metric_for_best_model=(None if for_inference else "macro_f1"),
+            greater_is_better=(None if for_inference else True),
 
             # Giới hạn số checkpoint được giữ lại
             save_total_limit=int(params.get("save_total_limit", 2)),
@@ -281,6 +292,9 @@ class EncoderLayer1Adapter(BaseModelAdapter):
         if self.model is None or self.tokenizer is None:
             raise RuntimeError("Model and tokenizer must be loaded first")
 
+        # Không bật callback dành cho training khi chỉ tạo Trainer để predict.
+        for_inference = train_dataset is None
+
         # Khởi tạo danh sách callbacks
         callbacks = []
 
@@ -294,7 +308,7 @@ class EncoderLayer1Adapter(BaseModelAdapter):
         )
 
         # Kích hoạt Early Stopping nếu patience > 0
-        if patience > 0:
+        if not for_inference and patience > 0:
             callbacks.append(
                 EarlyStoppingCallback(
                     early_stopping_patience=patience,
@@ -307,12 +321,15 @@ class EncoderLayer1Adapter(BaseModelAdapter):
                 )
             )
 
-        callbacks.append(EpochProgressCallback())
+        if not for_inference:
+            callbacks.append(EpochProgressCallback())
 
         # Khởi tạo Trainer để quản lý training và evaluation
         trainer = Trainer(
             model=self.model,                         # Model cần huấn luyện
-            args=self._create_training_arguments(),    # Cấu hình training
+            args=self._create_training_arguments(
+                for_inference=for_inference
+            ),                                          # Train hoặc inference
             train_dataset=train_dataset,               # Tập huấn luyện
             eval_dataset=eval_dataset,                 # Tập validation
             processing_class=self.tokenizer,           # Tokenizer
@@ -487,6 +504,71 @@ class EncoderLayer1Adapter(BaseModelAdapter):
                 "max_length": self.config.training.max_length,
             },
         )
+
+    @staticmethod
+    def _is_complete_model_directory(path: Path) -> bool:
+        weight_files = (
+            "model.safetensors",
+            "model.safetensors.index.json",
+            "pytorch_model.bin",
+            "pytorch_model.bin.index.json",
+        )
+        return (path / "config.json").is_file() and any(
+            (path / name).is_file() for name in weight_files
+        )
+
+    def _resolve_model_load_directory(self, artifact_dir: Path) -> Path:
+        """Use artifacts when complete, otherwise recover from checkpoints."""
+
+        if self._is_complete_model_directory(artifact_dir):
+            return artifact_dir
+
+        checkpoints_dir = artifact_dir.parent / "checkpoints"
+        checkpoints = sorted(
+            (
+                path
+                for path in checkpoints_dir.glob("checkpoint-*")
+                if path.is_dir()
+            ),
+            key=lambda path: int(path.name.rsplit("-", maxsplit=1)[-1]),
+            reverse=True,
+        )
+
+        # Trainer records the best checkpoint in its state. Prefer it when the
+        # downloaded directory still contains its config and model weights.
+        for checkpoint in checkpoints:
+            state_path = checkpoint / "trainer_state.json"
+            if not state_path.is_file():
+                continue
+            try:
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            best_path = state.get("best_model_checkpoint")
+            if best_path:
+                best_checkpoint = checkpoints_dir / Path(best_path).name
+                if self._is_complete_model_directory(best_checkpoint):
+                    LOGGER.warning(
+                        "Artifact directory is incomplete; loading best checkpoint %s",
+                        best_checkpoint,
+                    )
+                    return best_checkpoint
+
+        # A partial download may omit the best checkpoint. Use the newest
+        # complete checkpoint explicitly and make the substitution visible.
+        for checkpoint in checkpoints:
+            if self._is_complete_model_directory(checkpoint):
+                LOGGER.warning(
+                    "Artifact and best checkpoint are incomplete; loading latest "
+                    "complete checkpoint %s",
+                    checkpoint,
+                )
+                return checkpoint
+
+        raise FileNotFoundError(
+            "No loadable model was found. Expected config.json and model weights "
+            f"in {artifact_dir} or {checkpoints_dir}/checkpoint-*"
+        )
         
     def load(self, artifact_dir: Path) -> None:
         # Kiểm tra thư mục chứa model có tồn tại không
@@ -494,6 +576,8 @@ class EncoderLayer1Adapter(BaseModelAdapter):
             raise FileNotFoundError(
                 f"Artifact directory does not exist: {artifact_dir}"
             )
+
+        model_dir = self._resolve_model_load_directory(artifact_dir)
 
         # Cấu hình quyền chạy custom code từ model
         trust_remote_code = bool(
@@ -512,18 +596,36 @@ class EncoderLayer1Adapter(BaseModelAdapter):
         )
         hf_token = self._get_hf_token()
 
-        # Tải tokenizer đã lưu từ artifact_dir
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            artifact_dir,
-            use_fast=use_fast,
-            trust_remote_code=trust_remote_code,
-            token=hf_token,
-        )
+        # Ưu tiên tokenizer đi cùng artifact. Một số phiên bản Transformers cũ
+        # lưu tokenizer chậm của PhoBERT với metadata không thể đọc lại ở phiên
+        # bản mới. Tokenizer không được fine-tune, nên khi gặp lỗi định dạng có
+        # thể tải an toàn từ base checkpoint trong config.
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                artifact_dir,
+                use_fast=use_fast,
+                trust_remote_code=trust_remote_code,
+                token=hf_token,
+            )
+        except ValueError as error:
+            LOGGER.warning(
+                "Could not load tokenizer from artifact %s (%s). "
+                "Falling back to base checkpoint %s",
+                artifact_dir,
+                error,
+                self.config.model.checkpoint,
+            )
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self.config.model.checkpoint,
+                use_fast=use_fast,
+                trust_remote_code=trust_remote_code,
+                token=hf_token,
+            )
 
         # Tải model Sequence Classification cùng trọng số đã lưu
         self.model = (
             AutoModelForSequenceClassification.from_pretrained(
-                artifact_dir,
+                model_dir,
                 trust_remote_code=trust_remote_code,
                 token=hf_token,
             )
