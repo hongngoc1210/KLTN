@@ -5,11 +5,12 @@ from __future__ import annotations
 import logging
 import os
 import re
+import sys
 from pathlib import Path
 from typing import Any, Sequence
 
 import torch
-from tqdm.auto import tqdm
+from tqdm import tqdm
 
 from qa_models.models.base import BaseModelAdapter
 from qa_models.prompts.layer1_zero_shot import PROMPT_VERSION, build_messages
@@ -128,7 +129,7 @@ class MultimodalZeroShotLayer1Adapter(BaseModelAdapter):
         if quantization_config is not None:
             model_kwargs["quantization_config"] = quantization_config
 
-        LOGGER.info("Loading zero-shot model from %s", self.config.model.checkpoint)
+        LOGGER.info("Loading generative model from %s", self.config.model.checkpoint)
         self.model = AutoModelForMultimodalLM.from_pretrained(
             self.config.model.checkpoint,
             **model_kwargs,
@@ -225,15 +226,33 @@ class MultimodalZeroShotLayer1Adapter(BaseModelAdapter):
         self._load_model_and_processor()
         batch_size = max(1, int(self.config.evaluation.batch_size))
         predictions: list[Prediction] = []
-        starts = range(0, len(examples), batch_size)
-        for start in tqdm(
-            starts,
-            total=(len(examples) + batch_size - 1) // batch_size,
+        total_batches = (len(examples) + batch_size - 1) // batch_size
+        progress = tqdm(
+            total=total_batches,
             desc=f"Zero-shot {self.config.model.name}",
             unit="batch",
-        ):
-            end = min(start + batch_size, len(examples))
-            predictions.extend(self._predict_batch(examples[start:end]))
+            file=sys.stdout,
+            dynamic_ncols=True,
+            leave=True,
+            mininterval=0.1,
+        )
+        # Render 0/N immediately in Colab. The first model.generate() call may
+        # otherwise look frozen while CUDA kernels are initialized.
+        progress.refresh()
+        try:
+            for batch_index, start in enumerate(
+                range(0, len(examples), batch_size),
+                start=1,
+            ):
+                end = min(start + batch_size, len(examples))
+                progress.set_postfix_str(
+                    f"generating {batch_index}/{total_batches}",
+                    refresh=True,
+                )
+                predictions.extend(self._predict_batch(examples[start:end]))
+                progress.update(1)
+        finally:
+            progress.close()
         return predictions
 
     def save(self, output_dir: Path) -> None:

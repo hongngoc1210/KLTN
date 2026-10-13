@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
@@ -175,9 +176,30 @@ class Qwen35QLoRAAdapter(MultimodalZeroShotLayer1Adapter):
     def _prepare_sft_dataset(self, examples: Sequence[Example]) -> Dataset:
         return Dataset.from_list([self._encode_example(example) for example in examples])
 
-    def _training_arguments(self) -> TrainingArguments:
+    def _warmup_steps(self, train_size: int) -> int:
+        """Convert a warmup ratio to steps for Transformers compatibility."""
+
+        params = self.config.training.params
+        if "warmup_steps" in params:
+            return int(params["warmup_steps"])
+
+        batches_per_epoch = math.ceil(
+            train_size / self.config.training.train_batch_size
+        )
+        updates_per_epoch = math.ceil(
+            batches_per_epoch
+            / self.config.training.gradient_accumulation_steps
+        )
+        total_update_steps = updates_per_epoch * self.config.training.epochs
+        return math.ceil(
+            total_update_steps * float(params.get("warmup_ratio", 0.05))
+        )
+
+    def _training_arguments(self, train_size: int) -> TrainingArguments:
         training = self.config.training
         params = training.params
+        warmup_steps = self._warmup_steps(train_size)
+        LOGGER.info("Scheduler warmup steps: %d", warmup_steps)
         return TrainingArguments(
             output_dir=str(training.output_dir / "checkpoints"),
             num_train_epochs=training.epochs,
@@ -189,7 +211,9 @@ class Qwen35QLoRAAdapter(MultimodalZeroShotLayer1Adapter):
                 params.get("gradient_checkpointing", True)
             ),
             weight_decay=float(params.get("weight_decay", 0.01)),
-            warmup_ratio=float(params.get("warmup_ratio", 0.05)),
+            # Some Transformers releases do not expose warmup_ratio in
+            # TrainingArguments, so calculate the equivalent step count.
+            warmup_steps=warmup_steps,
             optim=str(params.get("optim", "paged_adamw_8bit")),
             eval_strategy="epoch",
             save_strategy="epoch",
@@ -256,6 +280,23 @@ class Qwen35QLoRAAdapter(MultimodalZeroShotLayer1Adapter):
             len(train_examples),
             len(validation_examples),
         )
+        effective_batch_size = (
+            self.config.training.train_batch_size
+            * self.config.training.gradient_accumulation_steps
+        )
+        LOGGER.info(
+            "Training batch: micro=%d, gradient_accumulation=%d, effective=%d",
+            self.config.training.train_batch_size,
+            self.config.training.gradient_accumulation_steps,
+            effective_batch_size,
+        )
+        if self.config.training.train_batch_size > 2:
+            LOGGER.warning(
+                "train_batch_size=%d is likely too large for Qwen3.5-4B "
+                "QLoRA at max_length=%d on a single Colab GPU",
+                self.config.training.train_batch_size,
+                self.config.training.max_length,
+            )
         train_dataset = self._prepare_sft_dataset(train_examples)
         validation_dataset = self._prepare_sft_dataset(validation_examples)
 
@@ -281,7 +322,7 @@ class Qwen35QLoRAAdapter(MultimodalZeroShotLayer1Adapter):
             raise RuntimeError("Tokenizer must define pad_token_id for SFT")
         self.trainer = Trainer(
             model=self.model,
-            args=self._training_arguments(),
+            args=self._training_arguments(len(train_dataset)),
             train_dataset=train_dataset,
             eval_dataset=validation_dataset,
             processing_class=self.processor.tokenizer,

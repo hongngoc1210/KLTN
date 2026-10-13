@@ -133,6 +133,17 @@ class AdditionalLayer1ModelConfigTests(unittest.TestCase):
             encoded["input_ids"][prompt_length:],
         )
 
+    def test_qwen_qlora_converts_warmup_ratio_to_steps(self) -> None:
+        config_path = (
+            Path(__file__).resolve().parents[1]
+            / "configs"
+            / "layer1"
+            / "qwen35_4b_qlora.toml"
+        )
+        adapter = Qwen35QLoRAAdapter(load_config(config_path))
+        # ceil(13666 / 1 / 16) * 10 = 8550 update steps; 5% => 428.
+        self.assertEqual(adapter._warmup_steps(13666), 428)
+
 
 class GenerativeOutputParserTests(unittest.TestCase):
     def test_prompt_contains_inputs_but_not_gold_label(self) -> None:
