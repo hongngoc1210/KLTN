@@ -138,6 +138,14 @@ python qa_models/main.py \
   --config-file qa_models/configs/layer1/gemma4_e4b_zero_shot.toml \
   --stage evaluate
 
+# Few-shot cân bằng: 1 demonstration từ train cho mỗi nhãn, không train model.
+python qa_models/main.py \
+  --config-file qa_models/configs/layer1/qwen35_4b_few_shot.toml \
+  --stage evaluate
+python qa_models/main.py \
+  --config-file qa_models/configs/layer1/gemma4_e4b_few_shot.toml \
+  --stage evaluate
+
 # Qwen3.5-4B: supervised fine-tuning thật bằng QLoRA, sau đó đánh giá test.
 python qa_models/main.py \
   --config-file qa_models/configs/layer1/qwen35_4b_qlora.toml \

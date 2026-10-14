@@ -144,13 +144,18 @@ class MultimodalZeroShotLayer1Adapter(BaseModelAdapter):
     def _format_prompt(self, example: Example) -> str:
         if self.processor is None:
             raise RuntimeError("Processor has not been loaded")
-        messages = build_messages(example)
+        messages = self.build_prompt_messages(example)
         return self.processor.apply_chat_template(
             messages,
             tokenize=False,
             add_generation_prompt=True,
             **self.chat_template_kwargs(),
         )
+
+    def build_prompt_messages(self, example: Example) -> list[dict[str, str]]:
+        """Hook for zero-shot, few-shot, and future prompting strategies."""
+
+        return build_messages(example)
 
     @staticmethod
     def parse_label(text: str) -> tuple[str | None, bool]:

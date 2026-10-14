@@ -139,14 +139,40 @@ class EncoderLayer1Adapter(BaseModelAdapter):
             "only_second",
         )
 
-        # Tokenize cặp (Question + Answer, Context) thành input_ids và attention_mask
-        return self.tokenizer(
-            batch["text_a"],
-            batch["text_b"],
-            max_length=self.config.training.max_length,  # Giới hạn tổng số token
-            truncation=truncation,                       # Ưu tiên cắt Context nếu quá dài
-            padding=False,                               # Padding động ở bước tạo batch
-        )
+        tokenize_kwargs = {
+            "max_length": self.config.training.max_length,
+            "truncation": truncation,
+            "padding": False,
+        }
+        try:
+            # Tokenize cặp (Question + Answer, Context). Với only_second, ưu
+            # tiên giữ nguyên question + answer và chỉ cắt context.
+            return self.tokenizer(
+                batch["text_a"],
+                batch["text_b"],
+                **tokenize_kwargs,
+            )
+        except Exception as error:
+            # only_second không thể hoạt động nếu riêng text_a đã vượt
+            # max_length. Khi đó cho phép tokenizer cắt vế dài hơn để không
+            # làm hỏng toàn bộ lượt train vì một mẫu ngoại lệ.
+            if (
+                truncation == "only_second"
+                and "Sequence to truncate too short" in str(error)
+            ):
+                LOGGER.warning(
+                    "Some question+answer inputs exceed max_length=%d; "
+                    "retrying this tokenization batch with longest_first",
+                    self.config.training.max_length,
+                )
+                return self.tokenizer(
+                    batch["text_a"],
+                    batch["text_b"],
+                    max_length=self.config.training.max_length,
+                    truncation="longest_first",
+                    padding=False,
+                )
+            raise
         
     # tokenize data
     def _tokenize_dataset(self, dataset: Dataset) -> Dataset:

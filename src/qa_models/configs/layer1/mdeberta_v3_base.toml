@@ -18,7 +18,9 @@ method = "finetune"
 [model.params]
 trust_remote_code = false
 use_fast = false
-truncation = "only_second"
+# Một số question + answer vượt 256 token theo tokenizer mDeBERTa.
+# longest_first cho phép cắt cả hai vế khi context không đủ để cắt tiếp.
+truncation = "longest_first"
 hf_token_env = "HF_TOKEN"
 require_hf_token = false
 
