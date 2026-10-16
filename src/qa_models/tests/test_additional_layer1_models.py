@@ -3,6 +3,9 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
+import numpy as np
+from transformers import EvalPrediction
+
 from qa_models.models.gemma4_e4b import Gemma4E4BZeroShotAdapter
 from qa_models.models.gemma4_e4b_few_shot import Gemma4E4BFewShotAdapter
 from qa_models.models.mdeberta_v3_base import MDeBERTaV3BaseAdapter
@@ -181,6 +184,60 @@ class AdditionalLayer1ModelConfigTests(unittest.TestCase):
         adapter = Qwen35QLoRAAdapter(load_config(config_path))
         # ceil(13666 / 1 / 16) * 10 = 8550 update steps; 5% => 428.
         self.assertEqual(adapter._warmup_steps(13666), 428)
+
+    def test_qwen_qlora_uses_macro_f1_for_early_stopping(self) -> None:
+        config_path = (
+            Path(__file__).resolve().parents[1]
+            / "configs"
+            / "layer1"
+            / "qwen35_4b_qlora.toml"
+        )
+        adapter = Qwen35QLoRAAdapter(load_config(config_path))
+        arguments = adapter._training_arguments(train_size=16)
+        self.assertEqual(arguments.metric_for_best_model, "macro_f1")
+        self.assertTrue(arguments.greater_is_better)
+
+    def test_qwen_qlora_computes_macro_f1_from_completion_tokens(self) -> None:
+        class FakeTokenizer:
+            labels = {
+                1: "no_hallucination",
+                2: "intrinsic_hallucination",
+                3: "extrinsic_hallucination",
+                4: "mixed_hallucination",
+            }
+
+            def decode(self, token_ids, **kwargs):
+                del kwargs
+                return '{"label":"' + self.labels[token_ids[0]] + '"}'
+
+        class FakeProcessor:
+            tokenizer = FakeTokenizer()
+
+        config_path = (
+            Path(__file__).resolve().parents[1]
+            / "configs"
+            / "layer1"
+            / "qwen35_4b_qlora.toml"
+        )
+        adapter = Qwen35QLoRAAdapter(load_config(config_path))
+        adapter.processor = FakeProcessor()
+        prediction = EvalPrediction(
+            # Position zero predicts the supervised token at position one.
+            predictions=np.array(
+                [[1, 0, 0], [2, 0, 0], [3, 0, 0], [4, 0, 0]]
+            ),
+            label_ids=np.array(
+                [
+                    [-100, 1, -100],
+                    [-100, 2, -100],
+                    [-100, 3, -100],
+                    [-100, 4, -100],
+                ]
+            ),
+        )
+        metrics = adapter._compute_sft_metrics(prediction)
+        self.assertEqual(metrics["macro_f1"], 1.0)
+        self.assertEqual(metrics["parse_success_rate"], 1.0)
 
 
 class GenerativeOutputParserTests(unittest.TestCase):

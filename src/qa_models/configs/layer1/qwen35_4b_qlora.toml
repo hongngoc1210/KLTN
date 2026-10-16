@@ -38,7 +38,8 @@ train_batch_size = 1
 eval_batch_size = 1
 gradient_accumulation_steps = 16
 max_length = 2048
-output_dir = "qa_models/outputs/layer1/qwen35_4b_qlora"
+# Tách khỏi checkpoint cũ từng được chọn theo eval_loss.
+output_dir = "qa_models/outputs/layer1/qwen35_4b_qlora_macro_f1"
 
 [training.params]
 weight_decay = 0.01

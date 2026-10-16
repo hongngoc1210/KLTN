@@ -1,8 +1,9 @@
 # Hệ thống đánh giá hallucination ba tầng
 
-Khung code hiện đã triển khai phần hạ tầng dùng được cho tầng 1; kiến trúc đích
-bao gồm ba tầng và hai chế độ đánh giá. Quyết định chia sẻ backbone, tách task
-head và cách đánh giá end-to-end được mô tả trong [ARCHITECTURE.md](ARCHITECTURE.md).
+Khung code hiện đã triển khai tầng 1 và chế độ đánh giá độc lập của tầng 2.
+Kiến trúc đích gồm ba tầng và hai chế độ đánh giá. Quyết định chia sẻ backbone,
+tách task head và cách đánh giá end-to-end được mô tả trong
+[ARCHITECTURE.md](ARCHITECTURE.md).
 
 Chưa có checkpoint cụ thể nào được triển khai. Khi thêm một experiment tầng 1,
 chỉ cần thêm:
@@ -155,6 +156,31 @@ python qa_models/main.py \
 python qa_models/main.py \
   --config-file qa_models/configs/layer1/qwen35_4b_qlora.toml \
   --stage evaluate
+
+# Tầng 2 độc lập: model nhận question + answer + context GỐC từ dataset.
+# Các encoder dùng BIO 5 nhãn để trích xuất span và evidence.
+python qa_models/main.py \
+  --config-file qa_models/configs/layer2/xlmr_base.toml \
+  --stage all
+
+# Thay xlmr_base bằng xlmr_large hoặc mmbert_base.
+# ViT5 fine-tune sinh JSON.
+python qa_models/main.py \
+  --config-file qa_models/configs/layer2/vit5_base.toml \
+  --stage all
+
+# Qwen/Gemma prompting tầng 2: chỉ evaluate, không train.
+python qa_models/main.py \
+  --config-file qa_models/configs/layer2/qwen35_4b_zero_shot.toml \
+  --stage evaluate
+python qa_models/main.py \
+  --config-file qa_models/configs/layer2/gemma4_e4b_zero_shot.toml \
+  --stage evaluate
+
+# Qwen tầng 2 SFT bằng QLoRA rồi đánh giá test.
+python qa_models/main.py \
+  --config-file qa_models/configs/layer2/qwen35_4b_qlora.toml \
+  --stage all
 
 # Chỉ train hoặc chỉ evaluate artifact đã lưu.
 python qa_models/main.py \

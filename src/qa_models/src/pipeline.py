@@ -183,6 +183,13 @@ def run_experiment(
 ) -> dict[str, Any]:
     """Run train, evaluate, or both using the adapter named in the config."""
 
+    if str(config.model.params.get("task", "layer1")) == "layer2":
+        if shuffle_context or ablation_suite:
+            raise ValueError("Layer-1 ablations are not available for layer 2")
+        from qa_models.src.layer2_pipeline import run_layer2_experiment
+
+        return run_layer2_experiment(config, stage)
+
     LOGGER.info("Initializing experiment %s (stage=%s)", config.model.name, stage)
     adapter_class = load_adapter_class(config.model.adapter)
     adapter = adapter_class(config)

@@ -78,8 +78,9 @@ memory, sau đó lần lượt gắn prompt hoặc adapter tương ứng.
 ### 1. Independent/oracle
 
 - Tầng 1 nhận `(content, question, answer)` và dự đoán label.
-- Tầng 2 nhận gold hallucination status và đánh giá span/evidence, không dùng
-  prediction tầng 1.
+- Tầng 2 nhận trực tiếp `(content, question, answer)` gốc và `span_label` chỉ
+  được dùng làm ground truth khi train/chấm điểm; tuyệt đối không dùng prediction
+  tầng 1 làm input.
 - Tầng 3 nhận gold span (và gold evidence nếu thiết kế model cần evidence) để
   chỉ đo năng lực diagnosis.
 

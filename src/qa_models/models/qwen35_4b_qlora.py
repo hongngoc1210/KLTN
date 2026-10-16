@@ -13,14 +13,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
+import numpy as np
 import torch
 from datasets import Dataset
-from transformers import EarlyStoppingCallback, Trainer, TrainingArguments
+from transformers import (
+    EarlyStoppingCallback,
+    EvalPrediction,
+    Trainer,
+    TrainingArguments,
+)
 from transformers.trainer_callback import PrinterCallback
 from transformers.trainer_utils import get_last_checkpoint
 
 from qa_models.prompts.layer1_zero_shot import PROMPT_VERSION
-from qa_models.src.labels import LABELS
+from qa_models.src.labels import LABELS, normalize_label
+from qa_models.src.metrics import classification_metrics
 from qa_models.src.records import Example
 from qa_models.tasks.layer1.generative_adapter import (
     MultimodalZeroShotLayer1Adapter,
@@ -220,8 +227,8 @@ class Qwen35QLoRAAdapter(MultimodalZeroShotLayer1Adapter):
             logging_strategy="steps",
             logging_steps=int(params.get("logging_steps", 10)),
             load_best_model_at_end=True,
-            metric_for_best_model="eval_loss",
-            greater_is_better=False,
+            metric_for_best_model=self._selection_metric_name(),
+            greater_is_better=True,
             save_total_limit=int(params.get("save_total_limit", 2)),
             seed=training.seed,
             data_seed=training.seed,
@@ -235,6 +242,110 @@ class Qwen35QLoRAAdapter(MultimodalZeroShotLayer1Adapter):
             save_only_model=False,
         )
 
+    def _selection_metric_name(self) -> str:
+        """Metric used for checkpoint selection and early stopping."""
+
+        return "macro_f1"
+
+    @staticmethod
+    def _preprocess_logits_for_metrics(
+        logits: torch.Tensor | tuple[torch.Tensor, ...],
+        labels: torch.Tensor,
+    ) -> torch.Tensor:
+        """Keep predicted token IDs only, avoiding huge vocabulary logits."""
+
+        del labels
+        if isinstance(logits, tuple):
+            logits = logits[0]
+        return logits.argmax(dim=-1)
+
+    def _compute_sft_metrics(self, prediction: EvalPrediction) -> dict[str, float]:
+        """Compute four-class metrics from completion tokens on the dev set.
+
+        Causal-LM logits at position ``t`` predict the token at ``t + 1``, so
+        both predictions and labels are shifted before extracting supervised
+        completion tokens. Parse failures use the same configured fallback as
+        normal generation, keeping training-time and test-time behavior aligned.
+        """
+
+        if self.processor is None:
+            raise RuntimeError("Processor has not been loaded")
+        tokenizer = self.processor.tokenizer
+        predicted_ids = np.asarray(prediction.predictions)
+        label_ids = np.asarray(prediction.label_ids)
+        if predicted_ids.ndim != 2 or label_ids.ndim != 2:
+            raise ValueError(
+                "Expected rank-2 token predictions and labels for QLoRA metrics"
+            )
+
+        fallback = normalize_label(
+            str(
+                self.config.model.params.get(
+                    "parse_failure_fallback", "no_hallucination"
+                )
+            )
+        )
+        gold_labels: list[str] = []
+        predicted_labels: list[str] = []
+        parsed_predictions = 0
+
+        for predicted_row, label_row in zip(
+            predicted_ids, label_ids, strict=True
+        ):
+            shifted_predictions = predicted_row[:-1]
+            shifted_labels = label_row[1:]
+            supervised = shifted_labels != -100
+            gold_text = tokenizer.decode(
+                shifted_labels[supervised].tolist(),
+                skip_special_tokens=True,
+            )
+            predicted_text = tokenizer.decode(
+                shifted_predictions[supervised].tolist(),
+                skip_special_tokens=True,
+            )
+
+            gold_label, gold_parsed = self.parse_label(gold_text)
+            if not gold_parsed or gold_label is None:
+                raise ValueError(
+                    f"Could not parse gold QLoRA completion: {gold_text!r}"
+                )
+            predicted_label, predicted_parsed = self.parse_label(predicted_text)
+            if predicted_parsed and predicted_label is not None:
+                parsed_predictions += 1
+            else:
+                predicted_label = fallback
+
+            gold_labels.append(gold_label)
+            predicted_labels.append(predicted_label)
+
+        metrics = classification_metrics(gold_labels, predicted_labels)
+        total = len(gold_labels)
+        return {
+            "accuracy": float(metrics["accuracy"]),
+            "macro_precision": float(metrics["macro_precision"]),
+            "macro_recall": float(metrics["macro_recall"]),
+            "macro_f1": float(metrics["macro_f1"]),
+            "weighted_f1": float(metrics["weighted_f1"]),
+            "parse_success_rate": parsed_predictions / total if total else 0.0,
+        }
+
+    def _checkpoint_has_selection_metric(self, checkpoint_path: str) -> bool:
+        """Return whether a checkpoint contains the configured metric."""
+
+        state_path = Path(checkpoint_path) / "trainer_state.json"
+        if not state_path.is_file():
+            return False
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        metric_key = f"eval_{self._selection_metric_name()}"
+        return any(
+            metric_key in entry
+            for entry in state.get("log_history", [])
+            if isinstance(entry, dict)
+        )
+
     def _resolve_resume_checkpoint(self) -> str | None:
         value = self.config.training.params.get("resume_from_checkpoint", False)
         if value in (False, None, "", "false", "none"):
@@ -244,7 +355,16 @@ class Qwen35QLoRAAdapter(MultimodalZeroShotLayer1Adapter):
         if value is True or str(value).lower() == "auto":
             if not checkpoint_dir.exists():
                 return None
-            return get_last_checkpoint(str(checkpoint_dir))
+            checkpoint = get_last_checkpoint(str(checkpoint_dir))
+            if checkpoint and not self._checkpoint_has_selection_metric(checkpoint):
+                LOGGER.warning(
+                    "Ignoring legacy checkpoint %s because it has no "
+                    "eval_%s; starting a new run for metric consistency",
+                    checkpoint,
+                    self._selection_metric_name(),
+                )
+                return None
+            return checkpoint
 
         checkpoint_path = Path(str(value))
         if not checkpoint_path.is_absolute():
@@ -254,6 +374,11 @@ class Qwen35QLoRAAdapter(MultimodalZeroShotLayer1Adapter):
         if not checkpoint_path.exists():
             raise FileNotFoundError(
                 f"Resume checkpoint does not exist: {checkpoint_path}"
+            )
+        if not self._checkpoint_has_selection_metric(str(checkpoint_path)):
+            raise ValueError(
+                "Cannot resume this legacy QLoRA checkpoint because it was "
+                f"not evaluated by eval_{self._selection_metric_name()}"
             )
         return str(checkpoint_path)
 
@@ -327,6 +452,8 @@ class Qwen35QLoRAAdapter(MultimodalZeroShotLayer1Adapter):
             eval_dataset=validation_dataset,
             processing_class=self.processor.tokenizer,
             data_collator=CompletionOnlyCollator(pad_token_id),
+            compute_metrics=self._compute_sft_metrics,
+            preprocess_logits_for_metrics=self._preprocess_logits_for_metrics,
             callbacks=callbacks,
         )
         self.trainer.remove_callback(PrinterCallback)
@@ -338,8 +465,9 @@ class Qwen35QLoRAAdapter(MultimodalZeroShotLayer1Adapter):
             LOGGER.info("Starting QLoRA training from the base checkpoint")
         self.trainer.train(resume_from_checkpoint=resume_checkpoint)
         LOGGER.info(
-            "QLoRA training finished; best checkpoint=%s, best eval_loss=%s",
+            "QLoRA training finished; best checkpoint=%s, best eval_%s=%s",
             self.trainer.state.best_model_checkpoint,
+            self._selection_metric_name(),
             self.trainer.state.best_metric,
         )
         self.processor.tokenizer.padding_side = "left"
