@@ -12,9 +12,9 @@ import numpy as np
 from datasets import Dataset
 from transformers import (
     AutoModelForSeq2SeqLM,
-    AutoTokenizer,
     DataCollatorForSeq2Seq,
     EarlyStoppingCallback,
+    PreTrainedTokenizerFast,
     Seq2SeqTrainer,
     Seq2SeqTrainingArguments,
 )
@@ -51,7 +51,12 @@ class ViT5Layer2Adapter(BaseModelAdapter):
         if self.tokenizer is not None and self.model is not None:
             return
         token = self._hf_token()
-        self.tokenizer = AutoTokenizer.from_pretrained(
+        # transformers 5 maps this legacy checkpoint to the new T5Tokenizer,
+        # whose constructor expects a sequence vocabulary. ViT5's tokenizer
+        # metadata supplies a dictionary and raises a TypeError. Loading its
+        # tokenizer.json through the generic Rust backend preserves the exact
+        # vocabulary IDs without invoking that incompatible constructor.
+        self.tokenizer = PreTrainedTokenizerFast.from_pretrained(
             self.config.model.checkpoint,
             token=token,
         )
@@ -216,6 +221,9 @@ class ViT5Layer2Adapter(BaseModelAdapter):
         if not artifact_dir.exists():
             raise FileNotFoundError(f"Artifact directory does not exist: {artifact_dir}")
         token = self._hf_token()
-        self.tokenizer = AutoTokenizer.from_pretrained(artifact_dir, token=token)
+        self.tokenizer = PreTrainedTokenizerFast.from_pretrained(
+            artifact_dir,
+            token=token,
+        )
         self.model = AutoModelForSeq2SeqLM.from_pretrained(artifact_dir, token=token)
         self.trainer = None
