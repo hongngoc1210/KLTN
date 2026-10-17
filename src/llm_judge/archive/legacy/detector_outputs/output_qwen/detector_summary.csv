@@ -1,0 +1,2 @@
+input_samples,successful_predictions,runtime_errors,predicted_hallu,predicted_no_hallu,hallu_rate,no_hallu_rate,mean_confidence
+10435,10435,0,9037,1398,0.8660277910876857,0.13397220891231432,0.9358826132042304

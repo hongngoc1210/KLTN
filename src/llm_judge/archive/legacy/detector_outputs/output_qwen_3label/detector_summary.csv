@@ -1,0 +1,2 @@
+input_samples,successful_predictions,runtime_errors,predicted_no_hallu,predicted_intrinsic,predicted_extrinsic,predicted_hallu,mean_confidence,model_path,max_length,hallu_rate
+11565,11565,0,1713,4162,5690,9852,0.9418757497723155,/content/drive/MyDrive/KLTN/models/vihallu_3class_detector_qwen3_4b/best_adapter,1024,0.8518806744487678

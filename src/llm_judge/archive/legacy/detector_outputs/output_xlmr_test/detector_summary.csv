@@ -1,0 +1,2 @@
+input_samples,successful_predictions,runtime_errors,predicted_hallu,predicted_no_hallu,hallu_rate,no_hallu_rate,mean_confidence,max_length,model_path
+13118,13118,0,8140,4978,0.6205214209483153,0.3794785790516847,0.7942684813686435,512,/content/drive/MyDrive/KLTN/models/vihallu_binary_detector_xlmr_large_grouped/best_model

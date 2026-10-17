@@ -1,0 +1,4 @@
+﻿generator,total_generated,detector_no_hallu_count,detector_no_hallu_pct_of_all,true_no_hallu_count,true_no_hallu_pct_of_all,false_detector_no_hallu_count,false_detector_no_hallu_pct_of_all,unknown_review_count,unknown_pct_of_all,true_pct_among_detector_flagged,false_pct_among_detector_flagged,missing_generation_join,missing_target_label
+gpt5_mini,580,75,12.931034482758621,1,0.1724137931034483,74,12.758620689655173,0,0.0,1.3333333333333335,98.66666666666667,0,0
+deepseek_v4_flash,600,117,19.5,15,2.5,102,17.0,0,0.0,12.82051282051282,87.17948717948718,0,0
+qwen_3_8_flash,600,138,23.0,6,1.0,132,22.0,0,0.0,4.3478260869565215,95.65217391304348,0,0

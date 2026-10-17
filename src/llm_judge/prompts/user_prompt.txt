@@ -1,0 +1,88 @@
+Hãy đánh giá mẫu dữ liệu sau chỉ dựa trên CONTEXT.
+
+Không sử dụng tri thức bên ngoài để bổ sung, xác minh hoặc bác bỏ thông tin.
+
+CONTEXT:
+{context}
+
+QUESTION:
+{question}
+
+ANSWER:
+{answer}
+
+ORIGINAL LABEL:
+{label}
+
+ORIGINAL LABEL chỉ là nhãn ban đầu cần kiểm định, không được mặc định là chính xác.
+
+Trước khi xuất kết quả, hãy thực hiện tuần tự trong nội bộ:
+
+1. Xác định question_status dựa trên CONTEXT và QUESTION.
+2. Tạm bỏ qua ORIGINAL LABEL.
+3. Đối chiếu trực tiếp ANSWER với CONTEXT.
+4. Kiểm tra thực thể, số liệu, thời gian, địa điểm, thuộc tính, quan hệ, điều kiện, phạm vi, phủ định, AND/OR, danh sách và phép tính.
+5. Kiểm tra ANSWER có tự mâu thuẫn hoặc mâu thuẫn với chính kết luận của nó không.
+6. Xác định ANSWER có thông tin contradicted với CONTEXT hay không.
+7. Xác định ANSWER có thông tin unsupported bởi CONTEXT hay không.
+8. Từ đó xác định ACTUAL LABEL.
+9. Chỉ sau khi xác định ACTUAL LABEL mới so sánh với ORIGINAL LABEL.
+10. Độc lập với việc xác định nhãn, chấm chất lượng ANSWER theo contextual_correctness, completeness, question_relevance, internal_consistency, clarity và fluency.
+11. Tính total_score bằng chính xác tổng của sáu điểm thành phần.
+12. Gán confidence cho độ chắc chắn của đánh giá, không phải chất lượng ANSWER.
+13. Chỉ xuất JSON hợp lệ.
+
+Các nhãn:
+
+- no_hallucination: ANSWER không chứa thông tin contradicted hoặc unsupported.
+- intrinsic_hallucination: ANSWER chứa ít nhất một thông tin contradicted nhưng không có unsupported độc lập.
+- extrinsic_hallucination: ANSWER chứa ít nhất một thông tin unsupported nhưng không có contradicted.
+- mixed_hallucination: ANSWER đồng thời chứa ít nhất một thông tin contradicted và ít nhất một thông tin unsupported độc lập.
+- invalid: Không thể đánh giá đáng tin cậy do CONTEXT, QUESTION hoặc ANSWER bị thiếu, hỏng nghiêm trọng hoặc không thể đối chiếu.
+
+Quy tắc bắt buộc:
+
+- Chỉ sử dụng CONTEXT làm nguồn bằng chứng.
+- Không sử dụng kiến thức thế giới.
+- Paraphrase giữ nguyên nghĩa không phải hallucination.
+- Suy luận trực tiếp và chắc chắn từ CONTEXT không phải hallucination.
+- Suy luận cần thêm giả định mới không được coi là supported.
+- Thông tin chỉ hợp lý nhưng không có căn cứ từ CONTEXT là unsupported.
+- Thông tin vắng mặt trong CONTEXT không tự động là contradicted.
+- mixed_hallucination chỉ được dùng khi có bằng chứng cho cả contradicted và unsupported độc lập.
+- Không được tính cùng một lỗi là cả contradicted và unsupported chỉ để tạo mixed_hallucination.
+- self_contradiction chỉ phản ánh bất nhất bên trong ANSWER, không phải mâu thuẫn giữa ANSWER và CONTEXT.
+- question_status khác answerable không tự động dẫn đến invalid.
+- Việc actual_label khớp original_label không được làm tăng điểm chất lượng ANSWER.
+- ANSWER có đúng loại hallucination vẫn phải bị chấm completeness hoặc question_relevance thấp nếu nó không trả lời đầy đủ hoặc đúng trọng tâm QUESTION.
+- contextual_correctness và internal_consistency là hai tiêu chí độc lập: ANSWER có thể sai so với CONTEXT nhưng vẫn hoàn toàn tự nhất quán.
+- confidence nằm trong khoảng 0.50 đến 1.00.
+- Mỗi điểm thành phần là số nguyên từ 0 đến 5.
+- total_score phải bằng chính xác tổng của sáu điểm thành phần và nằm trong khoảng 0 đến 30.
+- Không sử dụng threshold PASS/REVIEW/FAIL.
+- Không tự đưa ra verdict.
+- Không xuất reasoning hoặc chain-of-thought.
+
+Chỉ xuất JSON object hợp lệ theo đúng schema sau:
+
+{
+  "question_status": "answerable | unanswerable | false_premise | ambiguous",
+  "has_hallucination": true,
+  "actual_label": "no_hallucination | intrinsic_hallucination | extrinsic_hallucination | mixed_hallucination | invalid",
+  "original_label": "no_hallucination | intrinsic_hallucination | extrinsic_hallucination | mixed_hallucination",
+  "label_match": true,
+  "self_contradiction": false,
+  "scores": {
+    "contextual_correctness": 0,
+    "completeness": 0,
+    "question_relevance": 0,
+    "internal_consistency": 0,
+    "clarity": 0,
+    "fluency": 0,
+    "total_score": 0
+  },
+  "confidence": 0.50,
+  "short_reason": "Một câu ngắn bằng tiếng Việt nêu bằng chứng hoặc lỗi quan trọng nhất."
+}
+
+Không thêm markdown, code fence, nhận xét hoặc bất kỳ nội dung nào bên ngoài JSON.

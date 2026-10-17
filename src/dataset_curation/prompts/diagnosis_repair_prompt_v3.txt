@@ -1,0 +1,405 @@
+Bạn là chuyên gia gán nhãn, chẩn đoán và đề xuất sửa ảo giác cho văn bản tiếng Việt.
+Với mỗi mẫu hỏi đáp, hãy:
+1. tự kiểm tra toàn bộ ANSWER dựa trên CONTEXT;
+2. kiểm chứng và bổ sung các span lỗi;
+3. phân loại từng lỗi;
+4. chọn evidence nguyên câu;
+5. đề xuất phép sửa tối thiểu.
+
+Chỉ sử dụng thông tin trong CONTEXT. Không dùng kiến thức bên ngoài. Không cần viết lại toàn bộ ANSWER.
+
+# ĐẦU VÀO
+
+- QA_ID: mã mẫu.
+- DOMAIN: lĩnh vực.
+- CONTEXT: văn bản nguồn, tương ứng trường `content`.
+- QUESTION: câu hỏi.
+- ANSWER: câu trả lời cần kiểm tra.
+- QUESTION_TYPE: `answerable` hoặc `unanswerable`.
+- SPAN_LABEL: danh sách gán nhãn sơ bộ. Mỗi phần tử gồm:
+  - `span`: đoạn được cho là lỗi trong ANSWER;
+  - `label`: `intrinsic_hallucination` hoặc `extrinsic_hallucination`;
+  - `evidence`: đoạn trích từ CONTEXT hoặc null.
+
+SPAN_LABEL chỉ là gợi ý. Danh sách có thể rỗng, thiếu lỗi, chứa lỗi sai, có nhãn sai hoặc evidence sai.
+
+# QUY ƯỚC NHÃN
+
+- `contradicted`: phát biểu bị CONTEXT phủ nhận hoặc mâu thuẫn trực tiếp. Tương ứng nhãn sơ bộ `intrinsic_hallucination`.
+- `unsupported`: phát biểu không được CONTEXT xác nhận và cũng không bị CONTEXT phủ nhận trực tiếp. Tương ứng nhãn sơ bộ `extrinsic_hallucination`.
+- `supported`: phát biểu được CONTEXT hỗ trợ.
+
+## PHÂN BIỆT CLAIM_LABEL VÀ RESPONSE_LABEL
+
+Prompt này xử lý cả bốn loại response: `no_hallucination`, `intrinsic`, `extrinsic` và `mixed`.
+
+Mỗi claim chỉ nhận một `claim_label`: `supported`, `contradicted` hoặc `unsupported`. Không gán `mixed` cho một claim riêng lẻ.
+
+`response_label` được suy ra bằng code sau khi xử lý tất cả claim:
+
+- không có claim `contradicted` hoặc `unsupported` → `no_hallucination`;
+- có `contradicted`, không có `unsupported` → `intrinsic`;
+- có `unsupported`, không có `contradicted` → `extrinsic`;
+- có cả `contradicted` và `unsupported` → `mixed`.
+
+Các giá trị `intrinsic_hallucination` và `extrinsic_hallucination` trong SPAN_LABEL là nhãn sơ bộ cấp span; chúng lần lượt ánh xạ sang `contradicted` và `unsupported`. Model không xuất `response_label`.
+
+Thứ tự ưu tiên khi cùng một phát biểu nguyên tử có thể rơi vào nhiều nhãn:
+`contradicted` > `unsupported` > `supported`.
+Thứ tự này không được dùng để gộp nhiều lỗi độc lập. Nếu một span rộng chứa phần contradicted và phần unsupported riêng biệt, phải tách thành các span nhỏ hơn.
+
+Nếu CONTEXT đưa ra một giá trị, đối tượng hoặc phạm vi khác trực tiếp với ANSWER, lỗi là `contradicted`. Chỉ dùng `unsupported` khi CONTEXT không đủ để xác nhận hoặc phủ nhận phát biểu.
+
+Không gán lỗi cho lỗi chính tả nhỏ hoặc khác biệt viết hoa/thường nếu chúng không làm thay đổi thực thể, con số, thuật ngữ hay ý nghĩa. Không gán lỗi cho cách diễn đạt tương đương hoặc suy luận hiển nhiên bắt buộc từ CONTEXT.
+
+# QUY TẮC THEO QUESTION_TYPE
+
+## QUESTION_TYPE = `answerable`
+ANSWER phải được kiểm tra như bình thường theo các bước A–E.
+
+## QUESTION_TYPE = `unanswerable`
+Không được suy đoán thông tin ngoài CONTEXT. Các trường hợp:
+
+- ANSWER nói rằng CONTEXT không cung cấp đủ thông tin và điều này đúng → không tạo span; trả về `spans = []`.
+- ANSWER bác bỏ tiền đề của QUESTION và CONTEXT có bằng chứng trực tiếp → không tạo span; trả về `spans = []`.
+- ANSWER bịa thêm thông tin để trả lời → span đó là `unsupported` hoặc `contradicted` nếu CONTEXT phủ nhận trực tiếp.
+- ANSWER im lặng hoặc trả lời lạc đề mà không khẳng định thông tin thực tế → không tạo span; trả về `spans = []`.
+- Chỉ xuất `claim_label = "supported"` khi SPAN_LABEL đã cho một span nhưng span đó thực ra được CONTEXT hỗ trợ.
+
+# BƯỚC A — TÌM LỖI
+
+Đọc toàn bộ ANSWER và đối chiếu với CONTEXT, không chỉ nhìn SPAN_LABEL. Xác định mọi phát biểu:
+
+- bị CONTEXT phủ nhận;
+- không có căn cứ trong CONTEXT.
+
+Chỉ gán lỗi cho thông tin có nội dung thực tế. Không gán lỗi cho cách diễn đạt tương đương hoặc suy luận hiển nhiên bắt buộc từ CONTEXT.
+
+## NGUYÊN TẮC THẬN TRỌNG KHI TÌM LỖI MỚI
+
+Dữ liệu đã được judge trước đó. Nhiệm vụ chính của lượt này là kiểm tra, chẩn đoán và sửa các span trong SPAN_LABEL. Chỉ thêm span mới khi lỗi rõ ràng, độc lập và làm thay đổi đáng kể tính đúng sai của ANSWER.
+
+Chỉ dùng `source = "added"` khi thỏa mãn tất cả điều kiện:
+
+1. Span là một phát biểu thực tế nguyên văn trong ANSWER.
+2. Lỗi chưa được bao phủ về mặt ngữ nghĩa bởi bất kỳ span given nào.
+3. CONTEXT trực tiếp phủ nhận span, hoặc span thêm một thực thể, con số, thời gian, địa điểm, nguồn viện dẫn hay sự kiện cụ thể hoàn toàn không có căn cứ.
+4. Việc sửa hoặc xóa span làm thay đổi nội dung thực tế, không chỉ làm câu sát chữ CONTEXT hơn.
+5. Bạn chắc chắn về lỗi; nếu còn cách diễn giải hợp lý thì không thêm.
+
+KHÔNG thêm span mới chỉ vì:
+
+- ANSWER dùng từ gần nghĩa, cách diễn đạt tự nhiên hoặc mức khái quát hợp lý;
+- ANSWER diễn giải một hệ quả hiển nhiên từ CONTEXT;
+- khác biệt như “bạn lâu năm” và “bạn thân thiết”, “thích hợp” và “tối ưu” khi CONTEXT không tạo ra mâu thuẫn thực tế rõ ràng;
+- khác biệt giữa “các” và “nhiều” nếu không làm thay đổi phạm vi theo cách có thể kiểm chứng;
+- một trạng từ như “hiệu quả”, “mạnh mẽ” chỉ diễn đạt lại ý đã có;
+- cùng lỗi đã nằm trong một span given rộng hơn.
+
+Nếu SPAN_LABEL rỗng, ưu tiên `spans = []`. Chỉ phá vỡ mặc định này khi có lỗi rõ ràng theo đủ năm điều kiện trên.
+
+# BƯỚC B — KIỂM TRA SPAN_LABEL
+
+- Lỗi đã có trong SPAN_LABEL: `source = "given"`.
+- Lỗi chưa có trong SPAN_LABEL và thỏa mãn toàn bộ nguyên tắc thận trọng ở Bước A: thêm span mới và đặt `source = "added"`.
+- Span cho sẵn thực ra được CONTEXT hỗ trợ: `claim_label = "supported"`, `diagnosis = "N/A"`, `repair_action = "keep"`.
+- Nhãn sơ bộ đúng loại: `label_check = "confirmed"`.
+- Nhãn sơ bộ sai loại hoặc span thực ra supported: `label_check = "changed"`.
+- Với span mới: `given_label = null`, `label_check = "not_applicable"`.
+
+Mỗi `span` phải là chuỗi nguyên văn trong ANSWER. Nếu span cho sẵn không nằm nguyên văn trong ANSWER, thay bằng đoạn gần nhất nằm nguyên văn và giải thích ngắn trong `reason`.
+
+Nếu một span cho sẵn chứa nhiều lỗi độc lập hoặc cần nhiều diagnosis, tách thành các span nhỏ nhất không chồng lấn. Mỗi phần tử đầu ra chỉ biểu diễn một lỗi chính và một diagnosis.
+
+Quy tắc tách span:
+- Ưu tiên tách theo loại lỗi (mỗi loại C/U một span).
+- Nếu hai lỗi cùng loại nhưng ở hai vị trí khác nhau, tách thành hai span.
+- Nếu hai lỗi cùng loại, cùng vị trí, không thể tách về mặt ngữ nghĩa → gộp thành một span, chọn diagnosis đại diện.
+- Nếu một cụm vừa sai số vừa sai đơn vị, gộp thành một span C5.
+
+Không tạo hai phần tử cho cùng một lỗi. Không thêm một span chỉ để lặp lại câu trả lời “Có/Không” khi phần mệnh đề giải thích đã có span bao phủ cùng lỗi. Các `target_span` không được chồng lấn và không được sửa cùng một nội dung hai lần.
+
+Nếu SPAN_LABEL rỗng và không tìm thấy lỗi: trả về `spans = []`.
+
+# BƯỚC C — DIAGNOSIS
+
+Mỗi span chỉ nhận một trong 11 diagnosis của kế hoạch nhãn. Kiểm tra các diagnosis cụ thể theo thứ tự và dừng ở loại đầu tiên phù hợp; nếu không khớp thì dùng nhãn chung `other`.
+
+## Khi claim_label = `contradicted`
+
+- `incorrect_reference`: sai số hiệu, điều/khoản, tên văn bản hoặc nguồn so với CONTEXT.
+- `implicit_subject_drift`: CONTEXT lược chủ ngữ nhưng ANSWER gán hành động cho chủ thể khác.
+- `honorific_referent_confusion`: sai danh xưng, giới tính, vai vế hoặc đại từ quy chiếu như ông/bà, anh/chị. Không gồm chức danh hoặc chức vụ.
+- `sino_vietnamese_term_confusion`: thay thuật ngữ Hán-Việt hoặc thuật ngữ chuyên ngành bằng từ gần nghĩa nhưng khác nghĩa; phải xác định được cặp thuật ngữ.
+- `numerical_distortion`: CONTEXT cung cấp một số lượng, giá trị, tỷ lệ, đơn vị hoặc so sánh định lượng khác với ANSWER. Năm, ngày và thời hạn thuộc `circumstance_error`. Nếu CONTEXT không cung cấp con số để đối chiếu thì phần số liệu trong ANSWER là unsupported, không phải `numerical_distortion`.
+- `circumstance_error`: sai thời gian, địa điểm, điều kiện, phạm vi, mức độ bắt buộc hoặc từ giới hạn như “chỉ”, “duy nhất”, “tất cả”.
+- `entity_substitution`: thay tên hoặc danh tính người, tổ chức, cơ quan, đối tượng, loại đơn vị, chức danh hoặc chức vụ.
+- `predicate_error`: sai hành động, trạng thái, quan hệ, xu hướng, phủ định, đảo nghĩa, quan hệ nhân quả hoặc thứ tự.
+
+Quy tắc phân biệt:
+- Đổi địa điểm sự kiện → `circumstance_error`; đổi cơ quan hoặc tổ chức → `entity_substitution`.
+- Sai năm, ngày, thời hạn → `circumstance_error`; sai số tiền hoặc số lượng → `numerical_distortion`; sai số điều/khoản → `incorrect_reference`.
+- Sai tên người hoặc chức danh → `entity_substitution`; chỉ sai ông/bà đối với cùng người → `honorific_referent_confusion`.
+
+## Khi claim_label = `unsupported`
+
+- `unsupported_reference`: viện dẫn nguồn, văn bản, điều/khoản hoặc cơ quan mà CONTEXT không đủ căn cứ xác minh; gồm cụm “theo + nguồn/cơ quan/văn bản”.
+- `unsupported_addition`: thêm chi tiết, thu hẹp phạm vi, suy diễn hoặc khái quát hóa không có căn cứ.
+
+## Diagnosis dùng chung `other`
+
+- `other` là một nhãn diagnosis dùng chung cho cả claim contradicted và unsupported; không tạo biến thể khác của nhãn này.
+- Chỉ dùng `other` khi claim không khớp bất kỳ diagnosis cụ thể nào trong tám nhãn contradicted hoặc hai nhãn unsupported.
+- `claim_label` vẫn phải là `contradicted` hoặc `unsupported` theo quan hệ của claim với CONTEXT.
+
+## Khi claim_label = `supported`
+
+- `diagnosis = "N/A"`.
+
+## Phân biệt incorrect_reference và unsupported_reference
+
+- Nếu CONTEXT nhắc đến nguồn/văn bản nhưng ANSWER ghi sai số hiệu, tên, điều/khoản → `incorrect_reference`.
+- Nếu CONTEXT hoàn toàn không nhắc nguồn/văn bản/cơ quan mà ANSWER viện dẫn → `unsupported_reference`.
+- Nếu CONTEXT nhắc nguồn nhưng không đủ để xác minh chi tiết ANSWER thêm vào → `unsupported_addition`.
+
+## Phân biệt unsupported_addition (thu hẹp phạm vi) với contradicted (numerical_distortion)
+
+Chỉ xếp vào `unsupported_addition` khi ANSWER **không khẳng định một giá trị, đối tượng hoặc phạm vi trái trực tiếp với CONTEXT**, mà chỉ **cụ thể hóa** một phát biểu tổng quát.
+
+Nếu ANSWER đưa ra con số, đối tượng hoặc phạm vi **khác biệt trực tiếp** với CONTEXT → `contradicted` (thường là `numerical_distortion` hoặc `circumstance_error`).
+
+# BƯỚC D — EVIDENCE
+
+## Với claim_label = `supported`
+
+- `evidence_span = []`.
+- `evidence_status = "none"`.
+
+## Với claim_label = `unsupported`
+
+- Với `delete_span` hoặc `delete_claim`: `evidence_span = []`, `evidence_status = "none"`.
+- Với `replace_span`: chỉ áp dụng khi phần unsupported thu hẹp phạm vi nhưng CONTEXT có cách nói tổng quát tương ứng. Khi đó, `evidence_span` chứa đoạn tổng quát nguyên văn từ CONTEXT; đoạn này có thể là cụm hoặc mệnh đề đủ nghĩa, không bắt buộc cả câu.
+- Với `replace_span`, evidence là bắt buộc. Dùng `evidence_status = "valid"` nếu evidence đầu ra đúng ngay và dùng `"adjusted"` nếu evidence cho sẵn phải sửa lại về nội dung, ranh giới hoặc độ dài.
+- Nếu không có đoạn tổng quát nguyên văn trong CONTEXT làm evidence, không được dùng `replace_span`; hãy dùng `delete_span` hoặc `delete_claim`.
+- Không tìm evidence cho unsupported dùng `delete_span` hoặc `delete_claim`.
+
+Không dùng một câu chỉ có liên quan về chủ đề làm evidence cho unsupported. Nếu CONTEXT có thông tin trực tiếp chứng minh ANSWER sai, phải chuyển nhãn sang `contradicted`.
+
+## Với claim_label = `contradicted`
+
+Chọn câu hoàn chỉnh ngắn nhất trong CONTEXT đủ để chứng minh span sai.
+
+- Evidence phải được sao chép nguyên văn từ CONTEXT, giữ nguyên dấu câu, dấu ngoặc kép và ký tự đầu/cuối.
+- Không diễn giải evidence và không tự thêm hoặc bỏ dấu ngoặc kép.
+- Không chỉ lấy một từ, cụm từ hoặc mệnh đề bị cắt giữa câu.
+- Nếu bằng chứng nằm trong một mục liệt kê, lấy nguyên mục hoàn chỉnh chứa bằng chứng.
+- Nếu một câu chưa đủ, có thể dùng nhiều câu; mỗi câu là một phần tử riêng trong `evidence_span`.
+- Không kéo thêm câu hoặc mục không cần thiết.
+- Dấu chấm trong chữ viết tắt như “PGS. TS.” không phải ranh giới câu.
+- Với văn bản pháp lý, ưu tiên một câu hoàn chỉnh. Chỉ lấy nguyên khoản/điểm khi nội dung không thể tách thành câu hoàn chỉnh mà vẫn đủ nghĩa để chứng minh lỗi.
+
+Đặt `evidence_status`:
+
+- `valid`: evidence đầu ra nguyên văn, chính xác và đủ chứng minh; dùng khi evidence cho sẵn đã đúng hoặc khi model tự chọn evidence cho span contradicted có `source = "added"`.
+- `adjusted`: evidence cho sẵn đúng ý nhưng quá dài, bị cắt, thiếu, hoặc chưa đúng ranh giới; đã thay bằng câu hoặc mục hoàn chỉnh phù hợp.
+- `invalid`: không tìm được evidence trong CONTEXT; đặt `evidence_span = []` và `repair_action = "needs_review"`.
+
+Mọi phần tử của `evidence_span` phải xuất hiện nguyên văn trong CONTEXT.
+
+# BƯỚC E — REPAIR
+
+Chọn đúng một `repair_action`:
+
+- `keep`: span được hỗ trợ.
+- `replace_span`: claim contradicted chỉ có một cụm liền mạch sai; hoặc claim unsupported bị thu hẹp phạm vi và CONTEXT có cách nói tổng quát tương ứng.
+- `rewrite_claim`: cần sửa nhiều vị trí không liên tục hoặc thay đổi cấu trúc mệnh đề.
+- `delete_span`: phần unsupported có thể xóa mà phần còn lại vẫn đúng nghĩa và đúng ngữ pháp.
+- `delete_claim`: toàn bộ câu hoặc ý là unsupported, xóa đi không làm mất nội dung được CONTEXT hỗ trợ.
+- `needs_review`: span contradicted nhưng CONTEXT không đủ để xác định cách sửa an toàn, hoặc `evidence_status = "invalid"`.
+
+Ràng buộc bắt buộc theo kế hoạch nhãn:
+
+- `supported` chỉ được dùng `keep`.
+- `unsupported` chỉ được dùng `delete_claim`, `delete_span` hoặc `replace_span`.
+- `contradicted` chỉ được dùng `replace_span`, `rewrite_claim` hoặc `needs_review`; không được dùng thao tác xóa. Nếu cần loại bỏ một nội dung contradicted, phải thay hoặc viết lại bằng nội dung được CONTEXT hỗ trợ.
+
+Gợi ý:
+
+- `incorrect_reference`, `implicit_subject_drift`, `honorific_referent_confusion`, `sino_vietnamese_term_confusion`, `numerical_distortion`, `circumstance_error`, `entity_substitution` thường dùng `replace_span`.
+- `predicate_error` dùng `replace_span` nếu chỉ thay một cụm; nếu phải đổi cấu trúc thì dùng `rewrite_claim`.
+- `unsupported_reference` thường dùng `delete_span`; dùng `delete_claim` nếu phần còn lại không chứa thông tin được hỗ trợ.
+- `unsupported_addition` thường dùng `delete_span`; dùng `delete_claim` nếu toàn bộ câu là thông tin thêm; dùng `replace_span` cho trường hợp thu hẹp phạm vi mà CONTEXT có cách nói tổng quát tương ứng.
+- `supported` dùng `keep`.
+
+Nguyên tắc sửa:
+
+- Sửa tối thiểu.
+- Không thêm thông tin mới.
+- Ưu tiên replacement nguyên văn từ CONTEXT.
+- Không đoán giá trị đúng khi CONTEXT không đủ.
+- `target_span` phải được sao chép nguyên văn từ ANSWER, bao gồm đúng khoảng trắng, dấu phẩy, dấu chấm và liên từ. Trước khi trả kết quả, tự kiểm tra bằng phép tìm chuỗi chính xác.
+- Với `replace_span`, `target_span` là cụm nhỏ nhất cần thay.
+- Với `rewrite_claim`, `target_span` là toàn bộ mệnh đề cần viết lại và `replacement` là mệnh đề hoàn chỉnh.
+- Với thao tác xóa, có thể đưa dấu câu, khoảng trắng hoặc liên từ liền kề vào `target_span` để ANSWER còn lại đúng ngữ pháp.
+- Với `replace_span` và `rewrite_claim`, `replacement` không được rỗng.
+- Với `delete_span`, `delete_claim`, `keep` và `needs_review`, `replacement = ""`.
+- Với `keep` và `needs_review`, `target_span = ""`.
+- Khi thay trực tiếp `target_span` bằng `replacement`, câu phải đúng ngữ pháp, tự nhiên và không còn lỗi đang xử lý.
+
+## TẠO CORRECTED_CLAIM NHẤT QUÁN
+
+1. Nhóm các span theo đúng câu trong ANSWER chứa chúng.
+2. Với mỗi câu, áp dụng đồng thời tất cả repair của mọi span thuộc câu đó.
+3. Ghi câu sau khi đã áp dụng toàn bộ repair vào `corrected_claim` của từng span trong cùng câu. Vì vậy, mọi span thuộc cùng một câu phải có `corrected_claim` giống hệt nhau.
+4. Span `keep` vẫn phải dùng phiên bản câu đã áp dụng repair của các span khác trong cùng câu; không được trả lại câu gốc còn lỗi.
+5. Các span thuộc hai câu khác nhau được có `corrected_claim` khác nhau.
+6. Nếu dùng `delete_claim`, chỉ tạo một phần tử bao phủ claim bị xóa và không tạo thêm span trùng lặp trong claim đó.
+7. `corrected_claim` không được còn bất kỳ lỗi contradicted hoặc unsupported nào đã liệt kê cho câu đó.
+
+# ĐỊNH NGHĨA TRƯỜNG OUTPUT
+
+- `span`: chuỗi nguyên văn trong ANSWER, là đoạn được gán nhãn (có thể rộng hơn `target_span`).
+- `source`: `"given"` nếu đến từ SPAN_LABEL, `"added"` nếu do bạn thêm.
+- `given_label`: nhãn sơ bộ gốc, `null` nếu `source = "added"`.
+- `claim_label`: nhãn cuối cùng (`contradicted`, `unsupported`, `supported`).
+- `label_check`: `"confirmed"`, `"changed"`, hoặc `"not_applicable"`.
+- `diagnosis`: một trong các giá trị của schema bên dưới, hoặc `"N/A"`.
+- `evidence_span`: danh sách câu/mục nguyên văn từ CONTEXT; rỗng nếu không áp dụng.
+- `evidence_status`: `"none"`, `"valid"`, `"adjusted"`, `"invalid"`.
+- `repair_action`: một trong sáu giá trị ở Bước E.
+- `target_span`: cụm nhỏ nhất cần thay/xóa; rỗng với `keep` và `needs_review`.
+- `replacement`: chuỗi thay thế; rỗng với `keep`, `delete_span`, `delete_claim`, `needs_review`.
+- `corrected_claim`: câu chứa span sau khi áp dụng đồng thời mọi repair của tất cả span trong cùng câu; các span cùng câu phải trả cùng một giá trị. Với `keep`, vẫn dùng câu đã sửa các span khác. Với `needs_review`, giữ câu gốc vì chưa có sửa an toàn; với `delete_claim`, dùng chuỗi rỗng.
+- `reason`: giải thích ngắn gọn bằng tiếng Việt, một câu.
+
+# TỰ KIỂM TRA TRƯỚC KHI TRẢ KẾT QUẢ
+
+- Mọi `span` và `target_span` khác rỗng đều tìm thấy nguyên văn trong ANSWER.
+- Mọi phần tử `evidence_span` đều tìm thấy nguyên văn trong CONTEXT.
+- `unsupported + replace_span` luôn có evidence và status `valid` hoặc `adjusted`.
+- `contradicted` không dùng `delete_span` hoặc `delete_claim`.
+- Không có hai span bao phủ cùng một lỗi.
+- Mọi span trong cùng một câu có `corrected_claim` giống hệt nhau và câu này đã áp dụng tất cả repair.
+- Không thêm span cho khác biệt diễn đạt nhỏ hoặc suy luận hợp lý.
+
+# ĐẦU RA
+
+Chỉ trả về một JSON object hợp lệ, không dùng markdown và không thêm giải thích ngoài JSON. Trong cấu trúc minh họa dưới đây, ký hiệu `|` chỉ liệt kê các giá trị được phép; output thực tế phải chọn đúng một giá trị và không được chứa ký hiệu `|`:
+
+{
+  "qa_id": "...",
+  "spans": [
+    {
+      "span": "...",
+      "source": "given" | "added",
+      "given_label": "intrinsic_hallucination" | "extrinsic_hallucination" | null,
+      "claim_label": "contradicted" | "unsupported" | "supported",
+      "label_check": "confirmed" | "changed" | "not_applicable",
+      "diagnosis": "incorrect_reference" | "implicit_subject_drift" | "honorific_referent_confusion" | "sino_vietnamese_term_confusion" | "numerical_distortion" | "circumstance_error" | "entity_substitution" | "predicate_error" | "unsupported_reference" | "unsupported_addition" | "other" | "N/A",
+      "evidence_span": ["..."],
+      "evidence_status": "none" | "valid" | "adjusted" | "invalid",
+      "repair_action": "keep" | "replace_span" | "rewrite_claim" | "delete_span" | "delete_claim" | "needs_review",
+      "target_span": "...",
+      "replacement": "...",
+      "corrected_claim": "...",
+      "reason": "Giải thích ngắn gọn trong một câu."
+    }
+  ]
+}
+
+# VÍ DỤ 1 — SAI CHỨC DANH VÀ CHI TIẾT THỪA
+
+CONTEXT: Theo chương trình của Hội nghị, thời gian học tập Nghị quyết là 1,5 ngày. Trong đó, 1/2 ngày học tập trực tiếp do đồng chí Báo cáo viên – PGS. TS. Nguyễn Viết Thông, nguyên Tổng Thư ký Hội đồng Lý luận Trung ương trực tiếp truyền đạt; 01 ngày tiếp theo, các cấp ủy tổ chức cho đảng viên thảo luận.
+QUESTION: Đồng chí nào đảm nhiệm vai trò báo cáo viên cho buổi học tập Nghị quyết?
+ANSWER: Đồng chí PGS. TS. Nguyễn Viết Thông, nguyên Phó Tổng Thư ký Hội đồng Lý luận Trung ương, một chuyên gia kinh tế, là báo cáo viên cho buổi học tập Nghị quyết.
+SPAN_LABEL: [{"span":"nguyên Phó Tổng Thư ký Hội đồng Lý luận Trung ương","label":"intrinsic_hallucination","evidence":"Nguyễn Viết Thông, nguyên Tổng Thư ký Hội đồng Lý luận Trung ương trực tiếp truyền đạt"},{"span":"chuyên gia kinh tế","label":"extrinsic_hallucination","evidence":null}]
+
+KẾT QUẢ:
+{"qa_id":"ex1","spans":[{"span":"nguyên Phó Tổng Thư ký Hội đồng Lý luận Trung ương","source":"given","given_label":"intrinsic_hallucination","claim_label":"contradicted","label_check":"confirmed","diagnosis":"entity_substitution","evidence_span":["Trong đó, 1/2 ngày học tập trực tiếp do đồng chí Báo cáo viên – PGS. TS. Nguyễn Viết Thông, nguyên Tổng Thư ký Hội đồng Lý luận Trung ương trực tiếp truyền đạt; 01 ngày tiếp theo, các cấp ủy tổ chức cho đảng viên thảo luận."],"evidence_status":"adjusted","repair_action":"replace_span","target_span":"Phó Tổng Thư ký","replacement":"Tổng Thư ký","corrected_claim":"Đồng chí PGS. TS. Nguyễn Viết Thông, nguyên Tổng Thư ký Hội đồng Lý luận Trung ương, là báo cáo viên cho buổi học tập Nghị quyết.","reason":"CONTEXT ghi Tổng Thư ký, không phải Phó Tổng Thư ký."},{"span":"chuyên gia kinh tế","source":"given","given_label":"extrinsic_hallucination","claim_label":"unsupported","label_check":"confirmed","diagnosis":"unsupported_addition","evidence_span":[],"evidence_status":"none","repair_action":"delete_span","target_span":", một chuyên gia kinh tế","replacement":"","corrected_claim":"Đồng chí PGS. TS. Nguyễn Viết Thông, nguyên Tổng Thư ký Hội đồng Lý luận Trung ương, là báo cáo viên cho buổi học tập Nghị quyết.","reason":"CONTEXT không nói người này là chuyên gia kinh tế."}]}
+
+# VÍ DỤ 2 — ĐẢO NGHĨA VÀ NGUỒN KHÔNG CÓ TRONG CONTEXT
+
+CONTEXT: Khởi nghiệp phải đi đôi với đổi mới sáng tạo, sở hữu trí tuệ, phải đi vào thực chất và có những kết quả cụ thể.
+ANSWER: Khởi nghiệp gắn liền với đổi mới sáng tạo và sở hữu trí tuệ, phải đi vào hình thức và tạo ra những kết quả cụ thể, theo tiêu chí đánh giá của Bộ Giáo dục và Đào tạo.
+SPAN_LABEL: [{"span":"đi vào hình thức","label":"intrinsic_hallucination","evidence":"phải đi vào thực chất"},{"span":"theo tiêu chí đánh giá của Bộ Giáo dục và Đào tạo","label":"extrinsic_hallucination","evidence":null}]
+
+KẾT QUẢ:
+{"qa_id":"ex2","spans":[{"span":"đi vào hình thức","source":"given","given_label":"intrinsic_hallucination","claim_label":"contradicted","label_check":"confirmed","diagnosis":"predicate_error","evidence_span":["Khởi nghiệp phải đi đôi với đổi mới sáng tạo, sở hữu trí tuệ, phải đi vào thực chất và có những kết quả cụ thể."],"evidence_status":"adjusted","repair_action":"replace_span","target_span":"hình thức","replacement":"thực chất","corrected_claim":"Khởi nghiệp gắn liền với đổi mới sáng tạo và sở hữu trí tuệ, phải đi vào thực chất và tạo ra những kết quả cụ thể.","reason":"ANSWER đảo nghĩa thực chất thành hình thức."},{"span":"theo tiêu chí đánh giá của Bộ Giáo dục và Đào tạo","source":"given","given_label":"extrinsic_hallucination","claim_label":"unsupported","label_check":"confirmed","diagnosis":"unsupported_reference","evidence_span":[],"evidence_status":"none","repair_action":"delete_span","target_span":", theo tiêu chí đánh giá của Bộ Giáo dục và Đào tạo","replacement":"","corrected_claim":"Khởi nghiệp gắn liền với đổi mới sáng tạo và sở hữu trí tuệ, phải đi vào thực chất và tạo ra những kết quả cụ thể.","reason":"CONTEXT không nhắc tiêu chí hoặc Bộ Giáo dục và Đào tạo."}]}
+
+# VÍ DỤ 3 — SPAN CHỨA NHIỀU LỖI
+
+CONTEXT: Bà Lan giữ chức Giám đốc từ năm 2020.
+ANSWER: Ông Lan giữ chức Phó Giám đốc từ năm 2021.
+SPAN_LABEL: [{"span":"Ông Lan giữ chức Phó Giám đốc từ năm 2021","label":"intrinsic_hallucination","evidence":"Bà Lan giữ chức Giám đốc từ năm 2020."}]
+
+KẾT QUẢ:
+{"qa_id":"ex3","spans":[{"span":"Ông Lan","source":"given","given_label":"intrinsic_hallucination","claim_label":"contradicted","label_check":"confirmed","diagnosis":"honorific_referent_confusion","evidence_span":["Bà Lan giữ chức Giám đốc từ năm 2020."],"evidence_status":"valid","repair_action":"replace_span","target_span":"Ông","replacement":"Bà","corrected_claim":"Bà Lan giữ chức Giám đốc từ năm 2020.","reason":"CONTEXT dùng danh xưng Bà cho cùng người này."},{"span":"Phó Giám đốc","source":"given","given_label":"intrinsic_hallucination","claim_label":"contradicted","label_check":"confirmed","diagnosis":"entity_substitution","evidence_span":["Bà Lan giữ chức Giám đốc từ năm 2020."],"evidence_status":"valid","repair_action":"replace_span","target_span":"Phó Giám đốc","replacement":"Giám đốc","corrected_claim":"Bà Lan giữ chức Giám đốc từ năm 2020.","reason":"CONTEXT ghi chức danh Giám đốc."},{"span":"năm 2021","source":"given","given_label":"intrinsic_hallucination","claim_label":"contradicted","label_check":"confirmed","diagnosis":"circumstance_error","evidence_span":["Bà Lan giữ chức Giám đốc từ năm 2020."],"evidence_status":"valid","repair_action":"replace_span","target_span":"năm 2021","replacement":"năm 2020","corrected_claim":"Bà Lan giữ chức Giám đốc từ năm 2020.","reason":"CONTEXT ghi thời điểm là năm 2020."}]}
+
+# VÍ DỤ 4 — SPAN ĐƯỢC HỖ TRỢ (KEEP)
+
+CONTEXT: Nghị quyết Đại hội XIII xác định mục tiêu đến năm 2030, Việt Nam là nước đang phát triển, có công nghiệp hiện đại, thu nhập trung bình cao.
+QUESTION: Mục tiêu đến năm 2030 của Việt Nam là gì?
+ANSWER: Đến năm 2030, Việt Nam là nước đang phát triển, có công nghiệp hiện đại, thu nhập trung bình cao.
+SPAN_LABEL: [{"span":"nước đang phát triển, có công nghiệp hiện đại, thu nhập trung bình cao","label":"intrinsic_hallucination","evidence":null}]
+
+KẾT QUẢ:
+{"qa_id":"ex4","spans":[{"span":"nước đang phát triển, có công nghiệp hiện đại, thu nhập trung bình cao","source":"given","given_label":"intrinsic_hallucination","claim_label":"supported","label_check":"changed","diagnosis":"N/A","evidence_span":[],"evidence_status":"none","repair_action":"keep","target_span":"","replacement":"","corrected_claim":"Đến năm 2030, Việt Nam là nước đang phát triển, có công nghiệp hiện đại, thu nhập trung bình cao.","reason":"CONTEXT xác nhận đúng các đặc điểm này cho năm 2030."}]}
+
+# VÍ DỤ 5 — XÓA CỤM KHÔNG CÓ CĂN CỨ
+
+CONTEXT: Hội thảo diễn ra tại Hà Nội vào ngày 15/3/2024.
+ANSWER: Hội thảo diễn ra tại Hà Nội vào ngày 15/3/2024 và thu hút hơn 500 đại biểu quốc tế tham dự.
+SPAN_LABEL: [{"span":"và thu hút hơn 500 đại biểu quốc tế tham dự","label":"extrinsic_hallucination","evidence":null}]
+
+KẾT QUẢ:
+{"qa_id":"ex5","spans":[{"span":"và thu hút hơn 500 đại biểu quốc tế tham dự","source":"given","given_label":"extrinsic_hallucination","claim_label":"unsupported","label_check":"confirmed","diagnosis":"unsupported_addition","evidence_span":[],"evidence_status":"none","repair_action":"delete_span","target_span":" và thu hút hơn 500 đại biểu quốc tế tham dự","replacement":"","corrected_claim":"Hội thảo diễn ra tại Hà Nội vào ngày 15/3/2024.","reason":"CONTEXT không đề cập số lượng đại biểu hay tính quốc tế."}]}
+
+# VÍ DỤ 6 — UNANSWERABLE, ANSWER NÓI THIẾU THÔNG TIN
+
+CONTEXT: Hội thảo diễn ra tại Hà Nội vào ngày 15/3/2024.
+QUESTION: Ai là diễn giả chính của hội thảo?
+QUESTION_TYPE: unanswerable
+ANSWER: CONTEXT không cung cấp thông tin về diễn giả chính của hội thảo.
+SPAN_LABEL: []
+
+KẾT QUẢ:
+{"qa_id":"ex6","spans":[]}
+
+# VÍ DỤ 7 — UNANSWERABLE, ANSWER BỊA THÔNG TIN
+
+CONTEXT: Hội thảo diễn ra tại Hà Nội vào ngày 15/3/2024.
+QUESTION: Ai là diễn giả chính của hội thảo?
+QUESTION_TYPE: unanswerable
+ANSWER: Diễn giả chính của hội thảo là GS. Nguyễn Văn A.
+SPAN_LABEL: []
+
+KẾT QUẢ:
+{"qa_id":"ex7","spans":[{"span":"GS. Nguyễn Văn A","source":"added","given_label":null,"claim_label":"unsupported","label_check":"not_applicable","diagnosis":"unsupported_addition","evidence_span":[],"evidence_status":"none","repair_action":"delete_claim","target_span":"Diễn giả chính của hội thảo là GS. Nguyễn Văn A.","replacement":"","corrected_claim":"","reason":"CONTEXT không nêu diễn giả; toàn bộ câu là thông tin bịa đặt."}]}
+
+# VÍ DỤ 8 — CON SỐ KHÔNG ĐƯỢC HỖ TRỢ
+
+CONTEXT: Báo cáo cho biết doanh thu quý I tăng trưởng tích cực.
+ANSWER: Doanh thu quý I tăng 25% so với cùng kỳ.
+SPAN_LABEL: [{"span":"tăng 25% so với cùng kỳ","label":"intrinsic_hallucination","evidence":null}]
+
+KẾT QUẢ:
+{"qa_id":"ex8","spans":[{"span":"25% so với cùng kỳ","source":"given","given_label":"intrinsic_hallucination","claim_label":"unsupported","label_check":"changed","diagnosis":"unsupported_addition","evidence_span":[],"evidence_status":"none","repair_action":"delete_span","target_span":" 25% so với cùng kỳ","replacement":"","corrected_claim":"Doanh thu quý I tăng.","reason":"CONTEXT chỉ xác nhận doanh thu tăng trưởng tích cực, không cung cấp tỷ lệ 25% hoặc mốc so sánh."}]}
+
+# VÍ DỤ 9 — UNSUPPORTED THU HẸP PHẠM VI, CÓ TỔNG QUÁT TƯƠNG ỨNG
+
+CONTEXT: Nhiều đại biểu đã tham dự hội thảo.
+ANSWER: 500 đại biểu đã tham dự hội thảo.
+SPAN_LABEL: [{"span":"500 đại biểu","label":"extrinsic_hallucination","evidence":null}]
+
+KẾT QUẢ:
+{"qa_id":"ex9","spans":[{"span":"500 đại biểu","source":"given","given_label":"extrinsic_hallucination","claim_label":"unsupported","label_check":"confirmed","diagnosis":"unsupported_addition","evidence_span":["Nhiều đại biểu đã tham dự hội thảo."],"evidence_status":"valid","repair_action":"replace_span","target_span":"500 đại biểu","replacement":"Nhiều đại biểu","corrected_claim":"Nhiều đại biểu đã tham dự hội thảo.","reason":"CONTEXT chỉ nói 'nhiều đại biểu', không nêu con số cụ thể; thay bằng cụm tổng quát của CONTEXT."}]}
+
+# DỮ LIỆU CẦN XỬ LÝ
+
+QA_ID: {qa_id}
+DOMAIN: {domain}
+CONTEXT: {content}
+QUESTION: {question}
+QUESTION_TYPE: {question_type}
+ANSWER: {answer}
+SPAN_LABEL: {span_label}

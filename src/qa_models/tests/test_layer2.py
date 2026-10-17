@@ -7,7 +7,7 @@ import numpy as np
 from transformers import EvalPrediction
 
 from qa_models.models.qwen35_4b_qlora_layer2 import Qwen35QLoRALayer2Adapter
-from qa_models.prompts.layer2_zero_shot import build_messages
+from qa_models.prompts.layer2_zero_shot import PROMPT_VERSION, build_messages
 from qa_models.src.config_loader import load_adapter_class, load_config
 from qa_models.src.records import Example
 from qa_models.tasks.layer2.encoder_adapter import (
@@ -17,6 +17,7 @@ from qa_models.tasks.layer2.encoder_adapter import (
 from qa_models.tasks.layer2.generative_adapter import GenerativeLayer2Adapter
 from qa_models.tasks.layer2.metrics import layer2_metrics
 from qa_models.tasks.layer2.records import Layer2Prediction, target_from_example
+from qa_models.tasks.layer2.vit5_adapter import ViT5Layer2Adapter
 
 
 def _example() -> Example:
@@ -103,6 +104,20 @@ class Layer2GenerativeTests(unittest.TestCase):
         self.assertIn(example.question, prompt)
         self.assertIn(example.answer, prompt)
         self.assertNotIn("contradicted", prompt)
+
+    def test_prompt_defines_consistent_evidence_policy(self) -> None:
+        system_prompt = build_messages(_example())[0]["content"]
+        self.assertEqual(PROMPT_VERSION, "layer2-zero-shot-v2-evidence-policy")
+        self.assertIn("câu hoàn chỉnh ngắn nhất", system_prompt)
+        self.assertIn("evidence phải là null", system_prompt)
+        self.assertIn("cụm hoặc mệnh đề tổng quát ngắn nhất", system_prompt)
+        self.assertIn("substring chính xác", system_prompt)
+
+    def test_vit5_uses_compact_policy_and_keeps_answer_before_context(self) -> None:
+        source = ViT5Layer2Adapter._source(_example())
+        self.assertIn("câu hoàn chỉnh ngắn nhất", source)
+        self.assertIn("evidence là null", source)
+        self.assertLess(source.index("ANSWER:"), source.index("CONTEXT:"))
 
     def test_parser_accepts_exact_substrings(self) -> None:
         example = _example()

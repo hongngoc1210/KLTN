@@ -1,0 +1,10 @@
+﻿generator,target_hallucination_label,total_generated_target,detector_no_hallu_count,detector_no_hallu_pct_of_target,true_no_hallu_count,true_no_hallu_pct_of_target,false_detector_no_hallu_count,false_detector_no_hallu_pct_of_target,unknown_review_count
+gpt5_mini,extrinsic_hallucination,267,26,9.737827715355806,0,0.0,26,9.737827715355806,0
+gpt5_mini,intrinsic_hallucination,274,41,14.963503649635038,1,0.36496350364963503,40,14.5985401459854,0
+gpt5_mini,mixed_hallucination,39,8,20.51282051282051,0,0.0,8,20.51282051282051,0
+deepseek_v4_flash,extrinsic_hallucination,269,36,13.382899628252787,3,1.1152416356877324,33,12.267657992565056,0
+deepseek_v4_flash,intrinsic_hallucination,292,68,23.28767123287671,11,3.767123287671233,57,19.52054794520548,0
+deepseek_v4_flash,mixed_hallucination,39,13,33.33333333333333,1,2.564102564102564,12,30.76923076923077,0
+qwen_3_8_flash,extrinsic_hallucination,269,68,25.27881040892193,3,1.1152416356877324,65,24.1635687732342,0
+qwen_3_8_flash,intrinsic_hallucination,292,59,20.205479452054796,3,1.0273972602739725,56,19.17808219178082,0
+qwen_3_8_flash,mixed_hallucination,39,11,28.205128205128204,0,0.0,11,28.205128205128204,0

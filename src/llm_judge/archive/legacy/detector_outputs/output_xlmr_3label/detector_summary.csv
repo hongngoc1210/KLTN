@@ -1,0 +1,2 @@
+input_samples,successful_predictions,runtime_errors,mean_confidence,max_length,model_path,no_hallu,intrinsic,extrinsic
+11565,11565,0,0.6919393657555686,512,/content/drive/MyDrive/KLTN/models/vihallu_3class_detector_xlmr_large/best_model,4036,7346,183

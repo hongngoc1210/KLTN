@@ -1,0 +1,47 @@
+Hãy đánh giá mẫu sau bằng quy trình evidence-first trong SYSTEM PROMPT.
+
+<context>
+{context}
+</context>
+
+<question>
+{question}
+</question>
+
+<answer>
+{answer}
+</answer>
+
+Chỉ trả về một JSON object hợp lệ theo schema dưới đây. Phần trong dấu < > là mô tả kiểu giá trị cần điền, không copy nguyên văn.
+
+{
+  "question_status": <một trong: "answerable", "unanswerable", "false_premise", "ambiguous">,
+  "is_evaluable": <boolean>,
+  "contradicted_claims": [
+    {
+      "answer_span": <chuỗi nguyên văn ngắn từ ANSWER>,
+      "context_evidence": <chuỗi nguyên văn ngắn từ CONTEXT>
+    }
+  ],
+  "unsupported_claims": [
+    {
+      "answer_span": <chuỗi nguyên văn ngắn từ ANSWER>
+    }
+  ],
+  "proposed_label": <một trong: "no_hallucination", "intrinsic_hallucination", "extrinsic_hallucination", "mixed_hallucination", "invalid">,
+  "alternative_label": <một trong: "no_hallucination", "intrinsic_hallucination", "extrinsic_hallucination", "mixed_hallucination", hoặc null>,
+  "self_contradiction": <boolean>,
+  "scores": {
+    "plausibility": <số nguyên 0-5>,
+    "completeness": <số nguyên 0-5>,
+    "question_relevance": <số nguyên 0-5>,
+    "internal_consistency": <số nguyên 0-5>,
+    "clarity": <số nguyên 0-5>,
+    "fluency": <số nguyên 0-5>
+  },
+  "uncertainty_factors": <danh sách các giá trị hợp lệ trong SYSTEM PROMPT, hoặc []>,
+  "confidence": <số thực 0.50-1.00>,
+  "short_reason": <đúng một câu tiếng Việt ngắn nêu bằng chứng quyết định nhãn>
+}
+
+Khi không có claim thuộc một loại, trả về [] cho danh sách đó. Không thêm field khác, markdown hoặc chain-of-thought.

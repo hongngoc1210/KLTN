@@ -1,0 +1,30 @@
+Hãy phân xử nhãn hallucination theo SYSTEM PROMPT, chỉ dựa vào ba trường sau.
+
+<context>
+{context}
+</context>
+
+<question>
+{question}
+</question>
+
+<answer>
+{answer}
+</answer>
+
+Chỉ trả về JSON object hợp lệ theo schema. Các mô tả trong dấu < > là kiểu giá trị, không copy nguyên văn:
+
+{
+  "question_status": <"answerable" | "unanswerable" | "false_premise" | "ambiguous">,
+  "is_evaluable": <boolean>,
+  "contradicted_claims": [{"answer_span": <chuỗi nguyên văn từ ANSWER>, "context_evidence": <chuỗi nguyên văn từ CONTEXT>}],
+  "unsupported_claims": [{"answer_span": <chuỗi nguyên văn từ ANSWER>}],
+  "proposed_label": <"no_hallucination" | "intrinsic_hallucination" | "extrinsic_hallucination" | "mixed_hallucination" | "invalid">,
+  "alternative_label": <một trong bốn nhãn không phải invalid, hoặc null>,
+  "self_contradiction": <boolean>,
+  "uncertainty_factors": <danh sách giá trị hợp lệ trong SYSTEM PROMPT hoặc []>,
+  "confidence": <số thực 0.50–1.00>,
+  "short_reason": <đúng một câu tiếng Việt ngắn về bằng chứng quyết định nhãn>
+}
+
+Khi không có claim thuộc một loại, trả về []. Không thêm scores, total_score, field khác, markdown hoặc chain-of-thought.

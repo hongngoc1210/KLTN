@@ -76,6 +76,10 @@ output/
 outputs/
 cache/
 tmp/
+checkpoints/
+state/
+reports/
+resources/
 
 # =========================
 # Model files
@@ -85,6 +89,7 @@ tmp/
 *.pt
 *.bin
 *.onnx
+*.zip
 
 # =========================
 # Crawl artifacts
@@ -94,4 +99,10 @@ tmp/
 
 *.json
 *.jsonl
+
+# =========================
+# QA model local artifacts
+# =========================
+src/qa_models/demo.ipynb
+src/qa_models/resources/vncorenlp/
 

@@ -1,0 +1,16 @@
+CONTENT:
+{content}
+
+QUESTION:
+{question}
+
+ANSWER:
+{answer}
+
+FIXED_LABEL — không được thay đổi:
+{label}
+
+FIXED_SPAN_LABEL — chỉ gán lại evidence, không đổi span hoặc label:
+{span_label}
+
+Hãy trả về evidence cho đúng từng span theo schema.

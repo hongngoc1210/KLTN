@@ -22,6 +22,7 @@ from transformers.trainer_callback import PrinterCallback
 from transformers.trainer_utils import get_last_checkpoint
 
 from qa_models.models.base import BaseModelAdapter
+from qa_models.prompts.layer2_zero_shot import COMPACT_EXTRACTION_RULES
 from qa_models.src.records import Example
 from qa_models.tasks.layer1.progress import EpochProgressCallback
 from qa_models.tasks.layer2.generative_adapter import GenerativeLayer2Adapter
@@ -62,11 +63,11 @@ class ViT5Layer2Adapter(BaseModelAdapter):
     @staticmethod
     def _source(example: Example) -> str:
         return (
-            "Trích xuất hallucination và evidence dưới dạng JSON. "
-            "Span phải nguyên văn từ ANSWER, evidence phải nguyên văn từ CONTEXT.\n"
-            f"CONTEXT: {example.context}\n"
-            f"QUESTION: {example.question}\n"
-            f"ANSWER: {example.answer}\nJSON:"
+            f"{COMPACT_EXTRACTION_RULES}\n"
+            f"ANSWER:\n{example.answer}\n\n"
+            f"QUESTION:\n{example.question}\n\n"
+            f"CONTEXT:\n{example.context}\n\n"
+            "JSON:"
         )
 
     @staticmethod

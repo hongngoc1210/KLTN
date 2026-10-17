@@ -1,0 +1,38 @@
+Hãy đánh giá mẫu sau theo đúng rubric trong SYSTEM PROMPT.
+Chỉ dùng CONTEXT làm bằng chứng và tạm bỏ qua ORIGINAL LABEL cho đến khi đã xác định ACTUAL LABEL.
+
+CONTEXT:
+{context}
+
+QUESTION:
+{question}
+
+ANSWER:
+{answer}
+
+ORIGINAL LABEL:
+{label}
+
+Chỉ trả về một JSON object hợp lệ, không markdown, không chain-of-thought và không có nội dung bên ngoài JSON:
+
+{
+  "question_status": "answerable | unanswerable | false_premise | ambiguous",
+  "has_hallucination": true,
+  "actual_label": "no_hallucination | intrinsic_hallucination | extrinsic_hallucination | mixed_hallucination | invalid",
+  "original_label": "no_hallucination | intrinsic_hallucination | extrinsic_hallucination | mixed_hallucination",
+  "label_match": true,
+  "self_contradiction": false,
+  "scores": {
+    "plausibility": 0,
+    "completeness": 0,
+    "question_relevance": 0,
+    "internal_consistency": 0,
+    "clarity": 0,
+    "fluency": 0,
+    "total_score": 0
+  },
+  "confidence": 0.50,
+  "short_reason": "Một câu ngắn bằng tiếng Việt nêu bằng chứng hoặc lỗi quan trọng nhất."
+}
+
+Mỗi điểm thành phần phải là số nguyên 0–5; total_score là tổng sáu điểm; confidence thuộc 0.50–1.00.

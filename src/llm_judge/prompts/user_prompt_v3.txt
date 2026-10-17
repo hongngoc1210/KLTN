@@ -1,0 +1,49 @@
+Hãy đánh giá mẫu sau bằng quy trình evidence-first trong SYSTEM PROMPT.
+
+CONTEXT:
+{context}
+
+QUESTION:
+{question}
+
+ANSWER:
+{answer}
+
+ORIGINAL LABEL:
+{label}
+
+Chỉ trả về một JSON object hợp lệ theo schema:
+
+{
+  "question_status": "answerable | unanswerable | false_premise | ambiguous",
+  "is_evaluable": true,
+  "contradicted_claims": [
+    {
+      "answer_span": "nguyên văn span ngắn từ ANSWER",
+      "context_evidence": "nguyên văn span ngắn từ CONTEXT"
+    }
+  ],
+  "unsupported_claims": [
+    {
+      "answer_span": "nguyên văn span ngắn từ ANSWER"
+    }
+  ],
+  "proposed_label": "no_hallucination | intrinsic_hallucination | extrinsic_hallucination | mixed_hallucination | invalid",
+  "self_contradiction": false,
+  "scores": {
+    "plausibility": 0,
+    "completeness": 0,
+    "question_relevance": 0,
+    "internal_consistency": 0,
+    "clarity": 0,
+    "fluency": 0,
+    "total_score": 0
+  },
+  "confidence": 0.50,
+  "uncertainty_factors": [],
+  "short_reason": "Một câu ngắn bằng tiếng Việt nêu bằng chứng quyết định nhãn."
+}
+
+confidence chỉ thể hiện độ chắc chắn của proposed_label; tuyệt đối không dựa vào scores, chất lượng ANSWER hoặc label_match.
+
+Khi không có claim thuộc một loại, trả về [] cho danh sách đó. Python sẽ tự thêm contradicted_spans và unsupported_spans từ các answer_span; model không xuất lặp lại hai field này. Không thêm field khác, không markdown và không chain-of-thought.
