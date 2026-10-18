@@ -22,6 +22,7 @@ from qa_models.src.records import Example
 from qa_models.tasks.layer1.encoder_adapter import EncoderLayer1Adapter
 from qa_models.tasks.layer1.progress import EpochProgressCallback
 from qa_models.tasks.layer2.records import Layer2Prediction, target_from_example
+from qa_models.tasks.layer2.validation import extraction_validation_metrics
 from qa_models.utils.io import write_json
 
 
@@ -48,6 +49,19 @@ class JointBIOLayer2Adapter(EncoderLayer1Adapter):
     Layer 2 is trained independently. Its inputs are the gold question, answer,
     and context from the source dataset, never predictions from layer 1.
     """
+
+    def __init__(self, config) -> None:
+        super().__init__(config)
+        self._metric_examples: tuple[Example, ...] | None = None
+        self._metric_dataset: Dataset | None = None
+
+    def fit(
+        self,
+        train_examples: Sequence[Example],
+        validation_examples: Sequence[Example],
+    ) -> None:
+        self._metric_examples = tuple(validation_examples)
+        super().fit(train_examples, validation_examples)
 
     def _load_model_and_tokenizer(self) -> None:
         if self.tokenizer is not None and self.model is not None:
@@ -92,6 +106,11 @@ class JointBIOLayer2Adapter(EncoderLayer1Adapter):
                     "answer_start": answer_start,
                     "span_values": list(target.spans),
                     "evidence_values": list(target.evidence),
+                    "span_ranges": [
+                        (start + answer_start, end + answer_start)
+                        for start, end in target.span_offsets
+                    ],
+                    "evidence_ranges": list(target.evidence_offsets),
                 }
             )
         return Dataset.from_list(rows)
@@ -137,17 +156,8 @@ class JointBIOLayer2Adapter(EncoderLayer1Adapter):
         all_labels: list[list[int]] = []
         all_sequences: list[list[int]] = []
         for row_index, offsets in enumerate(encoded["offset_mapping"]):
-            answer_start = int(batch["answer_start"][row_index])
-            answer = batch["text_a"][row_index][answer_start:]
-            span_ranges = self._ranges(
-                answer,
-                batch["span_values"][row_index],
-                shift=answer_start,
-            )
-            evidence_ranges = self._ranges(
-                batch["text_b"][row_index],
-                batch["evidence_values"][row_index],
-            )
+            span_ranges = batch["span_ranges"][row_index]
+            evidence_ranges = batch["evidence_ranges"][row_index]
             sequence_ids = encoded.sequence_ids(row_index)
             labels: list[int] = []
             serial_sequences: list[int] = []
@@ -187,8 +197,13 @@ class JointBIOLayer2Adapter(EncoderLayer1Adapter):
         return dict(encoded)
 
     def _compute_metrics(self, prediction: EvalPrediction) -> dict[str, float]:
+        if self._metric_examples is None or self._metric_dataset is None:
+            raise RuntimeError("Layer-2 validation examples and offsets were not registered")
         logits = prediction.predictions[0] if isinstance(prediction.predictions, tuple) else prediction.predictions
         predicted = np.argmax(logits, axis=-1)
+        extracted = self._decode_predictions(
+            self._metric_examples, self._metric_dataset, predicted
+        )
         gold = prediction.label_ids
         valid = gold != -100
         predicted = predicted[valid]
@@ -199,16 +214,20 @@ class JointBIOLayer2Adapter(EncoderLayer1Adapter):
         evidence_pred = np.isin(predicted, [BIO_TO_ID["B-EVIDENCE"], BIO_TO_ID["I-EVIDENCE"]])
         span_p, span_r, span_f1 = _binary_prf(span_gold, span_pred)
         evidence_p, evidence_r, evidence_f1 = _binary_prf(evidence_gold, evidence_pred)
-        return {
+        diagnostics = {
             "accuracy": float((gold == predicted).mean()) if gold.size else 0.0,
-            "span_precision": span_p,
-            "span_recall": span_r,
-            "span_f1": span_f1,
-            "evidence_precision": evidence_p,
-            "evidence_recall": evidence_r,
-            "evidence_f1": evidence_f1,
-            "macro_f1": (span_f1 + evidence_f1) / 2,
+            "token_span_precision": span_p,
+            "token_span_recall": span_r,
+            "token_span_f1": span_f1,
+            "token_evidence_precision": evidence_p,
+            "token_evidence_recall": evidence_r,
+            "token_evidence_f1": evidence_f1,
+            "token_macro_f1": (span_f1 + evidence_f1) / 2,
         }
+        diagnostics.update(extraction_validation_metrics(
+            self._metric_examples, extracted, self.config.model.params
+        ))
+        return diagnostics
 
     def _create_trainer(
         self,
@@ -217,6 +236,8 @@ class JointBIOLayer2Adapter(EncoderLayer1Adapter):
     ) -> Trainer:
         if self.model is None or self.tokenizer is None:
             raise RuntimeError("Model and tokenizer must be loaded first")
+        if eval_dataset is not None:
+            self._metric_dataset = eval_dataset
         for_inference = train_dataset is None
         callbacks = []
         patience = int(self.config.training.params.get("early_stopping_patience", 0))
@@ -248,7 +269,7 @@ class JointBIOLayer2Adapter(EncoderLayer1Adapter):
         return trainer
 
     @staticmethod
-    def _decode_values(
+    def _decode_values_and_offsets(
         text: str,
         tag_ids: Sequence[int],
         offsets: Sequence[Sequence[int]],
@@ -258,7 +279,7 @@ class JointBIOLayer2Adapter(EncoderLayer1Adapter):
         begin_id: int,
         inside_id: int,
         shift: int = 0,
-    ) -> tuple[str, ...]:
+    ) -> tuple[tuple[str, ...], tuple[tuple[int, int], ...]]:
         ranges: list[tuple[int, int]] = []
         current: list[int] | None = None
         for tag, offset, owner in zip(tag_ids, offsets, sequence_ids, strict=True):
@@ -280,24 +301,67 @@ class JointBIOLayer2Adapter(EncoderLayer1Adapter):
                 current[1] = end
         if current is not None:
             ranges.append((current[0], current[1]))
-        values = [text[max(0, start):min(len(text), end)].strip() for start, end in ranges]
-        return tuple(dict.fromkeys(value for value in values if value))
 
-    def predict(self, examples: Sequence[Example]) -> list[Layer2Prediction]:
-        if not examples:
-            return []
-        trainer = self._ensure_inference_trainer()
-        tokenized = self._tokenize_dataset(self._prepare_dataset(examples))
-        output = trainer.predict(tokenized)
-        logits = output.predictions[0] if isinstance(output.predictions, tuple) else output.predictions
-        predicted_ids = np.argmax(logits, axis=-1)
+        values: list[str] = []
+        value_offsets: list[tuple[int, int]] = []
+        seen: set[tuple[str, tuple[int, int]]] = set()
+        for start, end in ranges:
+            start = max(0, start)
+            end = min(len(text), end)
+            raw = text[start:end]
+            value = raw.strip()
+            if not value:
+                continue
+            left_trim = len(raw) - len(raw.lstrip())
+            right_trim = len(raw) - len(raw.rstrip())
+            adjusted = (start + left_trim, end - right_trim)
+            key = (value, adjusted)
+            if key in seen:
+                continue
+            seen.add(key)
+            values.append(value)
+            value_offsets.append(adjusted)
+        return tuple(values), tuple(value_offsets)
+
+    @staticmethod
+    def _decode_values(
+        text: str,
+        tag_ids: Sequence[int],
+        offsets: Sequence[Sequence[int]],
+        sequence_ids: Sequence[int],
+        *,
+        sequence_id: int,
+        begin_id: int,
+        inside_id: int,
+        shift: int = 0,
+    ) -> tuple[str, ...]:
+        values, _ = JointBIOLayer2Adapter._decode_values_and_offsets(
+            text,
+            tag_ids,
+            offsets,
+            sequence_ids,
+            sequence_id=sequence_id,
+            begin_id=begin_id,
+            inside_id=inside_id,
+            shift=shift,
+        )
+        return values
+
+    def _decode_predictions(
+        self,
+        examples: Sequence[Example],
+        tokenized: Dataset,
+        predicted_ids: np.ndarray,
+    ) -> list[Layer2Prediction]:
+        if len(examples) != len(tokenized) or len(examples) != len(predicted_ids):
+            raise ValueError("Layer-2 predictions do not match examples/offsets")
         predictions: list[Layer2Prediction] = []
         for index, example in enumerate(examples):
             row = tokenized[index]
             length = len(row["offset_mapping"])
             tags = predicted_ids[index][:length].tolist()
             answer_start = int(row["answer_start"])
-            spans = self._decode_values(
+            spans, span_offsets = self._decode_values_and_offsets(
                 example.answer,
                 tags,
                 row["offset_mapping"],
@@ -307,7 +371,7 @@ class JointBIOLayer2Adapter(EncoderLayer1Adapter):
                 inside_id=BIO_TO_ID["I-SPAN"],
                 shift=answer_start,
             )
-            evidence = self._decode_values(
+            evidence, evidence_offsets = self._decode_values_and_offsets(
                 example.context,
                 tags,
                 row["offset_mapping"],
@@ -316,8 +380,31 @@ class JointBIOLayer2Adapter(EncoderLayer1Adapter):
                 begin_id=BIO_TO_ID["B-EVIDENCE"],
                 inside_id=BIO_TO_ID["I-EVIDENCE"],
             )
-            predictions.append(Layer2Prediction(example.example_id, spans, evidence))
+            predictions.append(
+                Layer2Prediction(
+                    example_id=example.example_id,
+                    spans=spans,
+                    evidence=evidence,
+                    span_offsets=span_offsets,
+                    evidence_offsets=evidence_offsets,
+                )
+            )
         return predictions
+
+    def predict(self, examples: Sequence[Example]) -> list[Layer2Prediction]:
+        if not examples:
+            return []
+        trainer = self._ensure_inference_trainer()
+        tokenized = self._tokenize_dataset(self._prepare_dataset(examples))
+        previous_context = self._metric_examples, self._metric_dataset
+        self._metric_examples = tuple(examples)
+        self._metric_dataset = tokenized
+        try:
+            output = trainer.predict(tokenized)
+        finally:
+            self._metric_examples, self._metric_dataset = previous_context
+        logits = output.predictions[0] if isinstance(output.predictions, tuple) else output.predictions
+        return self._decode_predictions(examples, tokenized, np.argmax(logits, axis=-1))
 
     def save(self, output_dir: Path) -> None:
         if self.model is None or self.tokenizer is None:
@@ -333,6 +420,9 @@ class JointBIOLayer2Adapter(EncoderLayer1Adapter):
                 "base_checkpoint": self.config.model.checkpoint,
                 "bio_labels": list(BIO_LABELS),
                 "input_mode": "gold_question_answer_context",
+                "selection_metric": "macro_f1",
+                "validation_mode": "decoded_extraction",
+                "iou_match_threshold": self.config.model.params.get("iou_match_threshold", 0.5),
             },
         )
 

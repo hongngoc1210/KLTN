@@ -5,6 +5,9 @@ Kiến trúc đích gồm ba tầng và hai chế độ đánh giá. Quyết đ�
 tách task head và cách đánh giá end-to-end được mô tả trong
 [ARCHITECTURE.md](ARCHITECTURE.md).
 
+Quy tắc EM/IoU, ý nghĩa từng metric Layer 2 và tiêu chí early stopping của từng
+họ model: [Layer 2 metrics](tasks/layer2/METRICS.md).
+
 Chưa có checkpoint cụ thể nào được triển khai. Khi thêm một experiment tầng 1,
 chỉ cần thêm:
 

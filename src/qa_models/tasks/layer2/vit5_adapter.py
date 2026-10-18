@@ -27,6 +27,7 @@ from qa_models.src.records import Example
 from qa_models.tasks.layer1.progress import EpochProgressCallback
 from qa_models.tasks.layer2.generative_adapter import GenerativeLayer2Adapter
 from qa_models.tasks.layer2.records import Layer2Prediction
+from qa_models.tasks.layer2.validation import extraction_validation_metrics
 from qa_models.utils.io import write_json
 
 
@@ -39,6 +40,7 @@ class ViT5Layer2Adapter(BaseModelAdapter):
         self.tokenizer = None
         self.model = None
         self.trainer: Seq2SeqTrainer | None = None
+        self._metric_examples: list[Example] | None = None
 
     def _hf_token(self) -> str | None:
         name = str(self.config.model.params.get("hf_token_env", "HF_TOKEN"))
@@ -131,7 +133,7 @@ class ViT5Layer2Adapter(BaseModelAdapter):
             save_strategy="no" if inference else "epoch",
             logging_steps=int(params.get("logging_steps", 50)),
             load_best_model_at_end=not inference,
-            metric_for_best_model=None if inference else "joint_exact_match",
+            metric_for_best_model=None if inference else "macro_f1",
             greater_is_better=None if inference else True,
             save_total_limit=int(params.get("save_total_limit", 2)),
             predict_with_generate=True,
@@ -150,11 +152,28 @@ class ViT5Layer2Adapter(BaseModelAdapter):
     def _compute_metrics(self, prediction) -> dict[str, float]:
         if self.tokenizer is None:
             raise RuntimeError("Tokenizer has not been loaded")
+        if self._metric_examples is None:
+            raise RuntimeError("Validation examples were not registered")
         predicted_ids = prediction.predictions[0] if isinstance(prediction.predictions, tuple) else prediction.predictions
         predicted = self._decode_token_ids(predicted_ids)
-        gold = self._decode_token_ids(prediction.label_ids)
-        exact = sum(a.strip() == b.strip() for a, b in zip(predicted, gold, strict=True))
-        return {"joint_exact_match": exact / len(gold) if gold else 0.0}
+        if len(predicted) != len(self._metric_examples):
+            raise ValueError(
+                "Generated validation predictions do not match validation examples"
+            )
+
+        extracted: list[Layer2Prediction] = []
+        for example, text in zip(
+            self._metric_examples, predicted, strict=True
+        ):
+            extracted.append(
+                GenerativeLayer2Adapter.parse_prediction(text, example)
+            )
+
+        return extraction_validation_metrics(
+            self._metric_examples,
+            extracted,
+            self.config.model.params,
+        )
 
     def _decode_token_ids(self, token_ids) -> list[str]:
         """Decode generated/label IDs after replacing Trainer's -100 padding."""
@@ -177,7 +196,16 @@ class ViT5Layer2Adapter(BaseModelAdapter):
         callbacks = []
         patience = int(self.config.training.params.get("early_stopping_patience", 0))
         if not inference and patience > 0:
-            callbacks.append(EarlyStoppingCallback(early_stopping_patience=patience))
+            callbacks.append(
+                EarlyStoppingCallback(
+                    early_stopping_patience=patience,
+                    early_stopping_threshold=float(
+                        self.config.training.params.get(
+                            "early_stopping_threshold", 0.0
+                        )
+                    ),
+                )
+            )
         if not inference:
             callbacks.append(EpochProgressCallback())
         trainer = Seq2SeqTrainer(
@@ -195,6 +223,7 @@ class ViT5Layer2Adapter(BaseModelAdapter):
 
     def fit(self, train_examples, validation_examples) -> None:
         self._load_base()
+        self._metric_examples = list(validation_examples)
         train = self._dataset(train_examples, with_labels=True)
         validation = self._dataset(validation_examples, with_labels=True)
         self.trainer = self._trainer(train, validation)
@@ -218,8 +247,7 @@ class ViT5Layer2Adapter(BaseModelAdapter):
         decoded = self._decode_token_ids(ids)
         result = []
         for example, text in zip(examples, decoded, strict=True):
-            spans, evidence, failed = GenerativeLayer2Adapter.parse_extraction(text, example)
-            result.append(Layer2Prediction(example.example_id, spans, evidence, text, failed))
+            result.append(GenerativeLayer2Adapter.parse_prediction(text, example))
         return result
 
     def save(self, output_dir: Path) -> None:
@@ -228,7 +256,13 @@ class ViT5Layer2Adapter(BaseModelAdapter):
         output_dir.mkdir(parents=True, exist_ok=True)
         self.model.save_pretrained(output_dir)
         self.tokenizer.save_pretrained(output_dir)
-        write_json(output_dir / "adapter_metadata.json", {"task": "layer2", "adapter": self.__class__.__name__})
+        write_json(output_dir / "adapter_metadata.json", {
+            "task": "layer2",
+            "adapter": self.__class__.__name__,
+            "selection_metric": "macro_f1",
+            "validation_mode": "free_generation_extraction",
+            "iou_match_threshold": self.config.model.params.get("iou_match_threshold", 0.5),
+        })
 
     def load(self, artifact_dir: Path) -> None:
         if not artifact_dir.exists():

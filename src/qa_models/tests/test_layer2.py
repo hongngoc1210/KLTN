@@ -103,8 +103,89 @@ class Layer2DataAndMetricTests(unittest.TestCase):
         )
         self.assertEqual(metrics["span"]["exact_match"], 1.0)
         self.assertEqual(metrics["span"]["mean_matched_iou"], 1.0)
+        self.assertEqual(metrics["span"]["mean_sample_char_iou"], 1.0)
+        self.assertEqual(metrics["span"]["char_f1"], 1.0)
         self.assertEqual(metrics["evidence"]["exact_match"], 1.0)
+        self.assertEqual(metrics["macro_f1"], 1.0)
         self.assertEqual(metrics["joint_exact_match"], 1.0)
+
+    def test_ungrounded_prediction_counts_as_false_positive(self) -> None:
+        example = _example()
+        metrics = layer2_metrics(
+            [example],
+            [
+                Layer2Prediction(
+                    example_id=example.example_id,
+                    spans=("Huế", "Đà Nẵng"),
+                    evidence=("Hà Nội",),
+                    span_offsets=((0, 3), None),
+                    evidence_offsets=((0, 6),),
+                )
+            ],
+        )
+        self.assertEqual(metrics["span"]["true_positive"], 1)
+        self.assertEqual(metrics["span"]["predicted_count"], 2)
+        self.assertEqual(metrics["span"]["ungrounded_count"], 1)
+        self.assertEqual(metrics["span"]["precision"], 0.5)
+
+    def test_clean_false_positive_rate_is_reported(self) -> None:
+        example = Example(
+            "clean",
+            "Hà Nội thuộc Việt Nam.",
+            "q",
+            "Hà Nội thuộc Việt Nam.",
+            "no_hallucination",
+            {"span_label": []},
+        )
+        metrics = layer2_metrics(
+            [example],
+            [Layer2Prediction(example.example_id, ("Hà Nội",), ())],
+        )
+        self.assertEqual(metrics["span"]["clean_sample_count"], 1)
+        self.assertEqual(metrics["span"]["clean_false_positive_rate"], 1.0)
+        self.assertEqual(metrics["no_hallucination_false_positive_rate"], 1.0)
+
+    def test_pair_metric_detects_wrong_span_evidence_link(self) -> None:
+        example = Example(
+            "multi",
+            "A đúng và B đúng.",
+            "q",
+            "X sai và Y sai.",
+            "mixed_hallucination",
+            {
+                "span_label": [
+                    {"span": "X", "evidence": "A", "label": "contradicted"},
+                    {"span": "Y", "evidence": "B", "label": "contradicted"},
+                ]
+            },
+        )
+        prediction = GenerativeLayer2Adapter.parse_prediction(
+            '{"spans":['
+            '{"span":"X","evidence":"B"},'
+            '{"span":"Y","evidence":"A"}'
+            "]}",
+            example,
+        )
+        metrics = layer2_metrics([example], [prediction])
+        self.assertEqual(metrics["joint_exact_match"], 1.0)
+        self.assertEqual(metrics["span_evidence_pair_exact_match"], 0.0)
+
+    def test_parse_error_is_not_exact_match_for_clean_sample(self) -> None:
+        example = Example(
+            "clean",
+            "Hà Nội thuộc Việt Nam.",
+            "q",
+            "Hà Nội thuộc Việt Nam.",
+            "no_hallucination",
+            {"span_label": []},
+        )
+        prediction = GenerativeLayer2Adapter.parse_prediction("not json", example)
+        metrics = layer2_metrics([example], [prediction])
+        self.assertEqual(metrics["span"]["exact_match"], 0.0)
+        self.assertEqual(metrics["span"]["mean_sample_char_iou"], 0.0)
+        self.assertEqual(metrics["joint_exact_match"], 0.0)
+        self.assertEqual(metrics["span_evidence_pair_exact_match"], 0.0)
+        self.assertEqual(metrics["parse_error_rate"], 1.0)
 
     def test_bio_decoder_extracts_only_answer_segment(self) -> None:
         tags = [
@@ -170,6 +251,37 @@ class Layer2GenerativeTests(unittest.TestCase):
         self.assertEqual(adapter.tokenizer.token_ids, [[1, 7, 2]])
         self.assertTrue(adapter.tokenizer.kwargs["skip_special_tokens"])
 
+    def test_vit5_selects_checkpoint_by_parsed_layer2_macro_f1(self) -> None:
+        class FakeTokenizer:
+            pad_token_id = 0
+
+            def batch_decode(self, token_ids, **kwargs):
+                del token_ids, kwargs
+                return [
+                    '```json\n{"spans":[{"span":"Huế","evidence":"Hà Nội"}]}\n```'
+                ]
+
+        config_path = (
+            Path(__file__).resolve().parents[1]
+            / "configs"
+            / "layer2"
+            / "vit5_base.toml"
+        )
+        adapter = ViT5Layer2Adapter(load_config(config_path))
+        adapter.tokenizer = FakeTokenizer()
+        adapter._metric_examples = [_example()]
+        metrics = adapter._compute_metrics(
+            EvalPrediction(
+                predictions=np.array([[1, 2, 3]]),
+                label_ids=np.array([[1, 2, 3]]),
+            )
+        )
+        self.assertEqual(metrics["span_f1"], 1.0)
+        self.assertEqual(metrics["evidence_f1"], 1.0)
+        self.assertEqual(metrics["macro_f1"], 1.0)
+        self.assertEqual(metrics["joint_exact_match"], 1.0)
+        self.assertEqual(adapter._args(inference=False).metric_for_best_model, "macro_f1")
+
     def test_parser_accepts_exact_substrings(self) -> None:
         example = _example()
         spans, evidence, failed = GenerativeLayer2Adapter.parse_extraction(
@@ -180,14 +292,23 @@ class Layer2GenerativeTests(unittest.TestCase):
         self.assertEqual(spans, ("Huế",))
         self.assertEqual(evidence, ("Hà Nội",))
 
-    def test_parser_rejects_hallucinated_substrings(self) -> None:
-        spans, evidence, failed = GenerativeLayer2Adapter.parse_extraction(
+    def test_parser_keeps_ungrounded_substrings_for_false_positive_count(self) -> None:
+        prediction = GenerativeLayer2Adapter.parse_prediction(
             '{"spans":[{"span":"Đà Nẵng","evidence":null}]}',
             _example(),
         )
-        self.assertTrue(failed)
-        self.assertEqual(spans, ())
-        self.assertEqual(evidence, ())
+        self.assertFalse(prediction.parse_error)
+        self.assertEqual(prediction.spans, ("Đà Nẵng",))
+        self.assertEqual(prediction.span_offsets, (None,))
+
+    def test_parser_normalizes_empty_sentinels(self) -> None:
+        prediction = GenerativeLayer2Adapter.parse_prediction(
+            '{"spans":[{"span":"NONE","evidence":"không có"}]}',
+            _example(),
+        )
+        self.assertFalse(prediction.parse_error)
+        self.assertEqual(prediction.spans, ())
+        self.assertEqual(prediction.evidence, ())
 
     def test_few_shot_prompt_contains_gold_only_for_demonstrations(self) -> None:
         demonstration = _example()
@@ -259,7 +380,7 @@ class Layer2GenerativeTests(unittest.TestCase):
             ],
         )
 
-    def test_qwen_qlora_selects_by_layer2_joint_exact_match(self) -> None:
+    def test_qwen_qlora_selects_by_layer2_macro_f1(self) -> None:
         config_path = (
             Path(__file__).resolve().parents[1]
             / "configs"
@@ -268,19 +389,20 @@ class Layer2GenerativeTests(unittest.TestCase):
         )
         adapter = Qwen35QLoRALayer2Adapter(load_config(config_path))
         arguments = adapter._training_arguments(train_size=16)
-        self.assertEqual(arguments.metric_for_best_model, "joint_exact_match")
+        self.assertEqual(arguments.metric_for_best_model, "macro_f1")
         self.assertTrue(arguments.greater_is_better)
 
-    def test_qwen_qlora_computes_layer2_completion_metric(self) -> None:
+    def test_qwen_qlora_computes_layer2_generated_metric(self) -> None:
         class FakeTokenizer:
+            pad_token_id = 0
             outputs = {
                 1: '{"spans":[{"span":"Huế","evidence":"Hà Nội"}]}',
                 2: '{"spans":[]}',
             }
 
-            def decode(self, token_ids, **kwargs):
+            def batch_decode(self, token_ids, **kwargs):
                 del kwargs
-                return self.outputs[token_ids[0]]
+                return [self.outputs[row[0]] for row in token_ids]
 
         class FakeProcessor:
             tokenizer = FakeTokenizer()
@@ -293,14 +415,27 @@ class Layer2GenerativeTests(unittest.TestCase):
         )
         adapter = Qwen35QLoRALayer2Adapter(load_config(config_path))
         adapter.processor = FakeProcessor()
+        adapter._metric_examples = (
+            _example(),
+            Example(
+                example_id="clean",
+                context="Đà Nẵng thuộc Việt Nam.",
+                question="Đà Nẵng thuộc quốc gia nào?",
+                answer="Đà Nẵng thuộc Việt Nam.",
+                label="no_hallucination",
+                metadata={"span_label": []},
+            ),
+        )
         metrics = adapter._compute_sft_metrics(
             EvalPrediction(
-                predictions=np.array([[1, 0, 0], [2, 0, 0]]),
-                label_ids=np.array([[-100, 1, -100], [-100, 2, -100]]),
+                predictions=np.array([[1, 0, -100], [2, 0, -100]]),
+                # Gold token positions no longer decide how predictions decode.
+                label_ids=np.array([[99, 99, 99], [99, 99, 99]]),
             )
         )
+        self.assertEqual(metrics["macro_f1"], 1.0)
         self.assertEqual(metrics["joint_exact_match"], 1.0)
-        self.assertEqual(metrics["parse_success_rate"], 1.0)
+        self.assertEqual(metrics["parse_error_rate"], 0.0)
 
 
 if __name__ == "__main__":

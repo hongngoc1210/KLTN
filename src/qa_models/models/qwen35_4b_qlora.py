@@ -183,6 +183,34 @@ class Qwen35QLoRAAdapter(MultimodalZeroShotLayer1Adapter):
     def _prepare_sft_dataset(self, examples: Sequence[Example]) -> Dataset:
         return Dataset.from_list([self._encode_example(example) for example in examples])
 
+    def _prepare_validation_dataset(self, examples: Sequence[Example]) -> Dataset:
+        """Task-specific hook; Layer 2 adds separate prompt-only inputs."""
+
+        return self._prepare_sft_dataset(examples)
+
+    def _create_sft_trainer(
+        self,
+        train_dataset: Dataset,
+        validation_dataset: Dataset,
+        callbacks: list[Any],
+    ) -> Trainer:
+        if self.processor is None:
+            raise RuntimeError("Processor has not been loaded")
+        pad_token_id = self.processor.tokenizer.pad_token_id
+        if pad_token_id is None:
+            raise RuntimeError("Tokenizer must define pad_token_id for SFT")
+        return Trainer(
+            model=self.model,
+            args=self._training_arguments(len(train_dataset)),
+            train_dataset=train_dataset,
+            eval_dataset=validation_dataset,
+            processing_class=self.processor.tokenizer,
+            data_collator=CompletionOnlyCollator(pad_token_id),
+            compute_metrics=self._compute_sft_metrics,
+            preprocess_logits_for_metrics=self._preprocess_logits_for_metrics,
+            callbacks=callbacks,
+        )
+
     def _warmup_steps(self, train_size: int) -> int:
         """Convert a warmup ratio to steps for Transformers compatibility."""
 
@@ -423,7 +451,7 @@ class Qwen35QLoRAAdapter(MultimodalZeroShotLayer1Adapter):
                 self.config.training.max_length,
             )
         train_dataset = self._prepare_sft_dataset(train_examples)
-        validation_dataset = self._prepare_sft_dataset(validation_examples)
+        validation_dataset = self._prepare_validation_dataset(validation_examples)
 
         patience = int(
             self.config.training.params.get("early_stopping_patience", 0)
@@ -442,19 +470,8 @@ class Qwen35QLoRAAdapter(MultimodalZeroShotLayer1Adapter):
                 ),
             )
 
-        pad_token_id = self.processor.tokenizer.pad_token_id
-        if pad_token_id is None:
-            raise RuntimeError("Tokenizer must define pad_token_id for SFT")
-        self.trainer = Trainer(
-            model=self.model,
-            args=self._training_arguments(len(train_dataset)),
-            train_dataset=train_dataset,
-            eval_dataset=validation_dataset,
-            processing_class=self.processor.tokenizer,
-            data_collator=CompletionOnlyCollator(pad_token_id),
-            compute_metrics=self._compute_sft_metrics,
-            preprocess_logits_for_metrics=self._preprocess_logits_for_metrics,
-            callbacks=callbacks,
+        self.trainer = self._create_sft_trainer(
+            train_dataset, validation_dataset, callbacks,
         )
         self.trainer.remove_callback(PrinterCallback)
 

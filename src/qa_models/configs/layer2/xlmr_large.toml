@@ -21,6 +21,7 @@ trust_remote_code = false
 use_fast = true
 truncation = "longest_first"
 iou_match_threshold = 0.5
+relaxed_iou_threshold = 0.3
 hf_token_env = "HF_TOKEN"
 require_hf_token = false
 
@@ -33,7 +34,8 @@ train_batch_size = 2
 eval_batch_size = 4
 gradient_accumulation_steps = 8
 max_length = 512
-output_dir = "qa_models/outputs/layer2/xlmr_large"
+# Fresh namespace: full-dev extraction F1; old checkpoint history is separate.
+output_dir = "qa_models/outputs/layer2/xlmr_large_extraction_f1"
 
 [training.params]
 weight_decay = 0.01

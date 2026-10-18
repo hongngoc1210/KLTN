@@ -10,7 +10,9 @@ from qa_models.configs.schema import ExperimentConfig
 from qa_models.src.config_loader import load_adapter_class
 from qa_models.src.data import load_examples
 from qa_models.tasks.layer2.metrics import layer2_metrics
-from qa_models.tasks.layer2.records import Layer2Prediction, target_from_example
+from qa_models.tasks.layer2.records import (
+    Layer2Prediction, target_from_example, validate_layer2_examples,
+)
 from qa_models.utils.io import write_json
 
 
@@ -48,15 +50,18 @@ def run_layer2_experiment(config: ExperimentConfig, stage: str) -> dict[str, Any
         LOGGER.info("Loading original training and validation samples")
         train = load_examples(config.data.train_path, config.data)
         validation = load_examples(config.data.validation_path, config.data)
+        validate_layer2_examples(train)
+        validate_layer2_examples(validation)
         adapter.fit(train, validation)
         adapter.save(output_dir / "artifacts")
 
     result: dict[str, Any] = {"model": config.model.name, "stage": stage}
     if stage in {"evaluate", "all"}:
-        if stage == "evaluate":
-            adapter.load(output_dir / "artifacts")
         LOGGER.info("Loading original %s samples", config.evaluation.split)
         examples = load_examples(_split_path(config), config.data)
+        validate_layer2_examples(examples)
+        if stage == "evaluate":
+            adapter.load(output_dir / "artifacts")
         predictions: list[Layer2Prediction] = adapter.predict(examples)
         if len(predictions) != len(examples):
             raise ValueError("Layer-2 adapter returned the wrong prediction count")
@@ -69,6 +74,9 @@ def run_layer2_experiment(config: ExperimentConfig, stage: str) -> dict[str, Any
             predictions,
             iou_threshold=float(
                 config.model.params.get("iou_match_threshold", 0.5)
+            ),
+            relaxed_iou_threshold=float(
+                config.model.params.get("relaxed_iou_threshold", 0.3)
             ),
         )
         metrics["evaluation_mode"] = "independent"

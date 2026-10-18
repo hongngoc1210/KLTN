@@ -27,6 +27,7 @@ bnb_4bit_compute_dtype = "float16"
 max_input_length = 8192
 max_new_tokens = 512
 iou_match_threshold = 0.5
+relaxed_iou_threshold = 0.3
 shots_per_type = 1
 few_shot_seed = 42
 few_shot_max_demo_chars = 1200

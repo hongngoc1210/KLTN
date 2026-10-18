@@ -3,20 +3,36 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
+from typing import Any, Sequence
 
 import numpy as np
-from transformers import EvalPrediction
+from datasets import Dataset
+from transformers import EvalPrediction, Trainer
 
 from qa_models.models.qwen35_4b_qlora import Qwen35QLoRAAdapter
 from qa_models.prompts.layer2_zero_shot import PROMPT_VERSION, build_messages
 from qa_models.src.records import Example
+from qa_models.tasks.layer2.causal_generation_trainer import (
+    GenerationCompletionCollator,
+    Layer2CausalGenerationTrainer,
+)
 from qa_models.tasks.layer2.generative_adapter import GenerativeLayer2Adapter
+from qa_models.tasks.layer2.records import Layer2Prediction
+from qa_models.tasks.layer2.validation import extraction_validation_metrics
 from qa_models.utils.io import write_json
+
+
+LOGGER = logging.getLogger("qa_models.layer2.qwen_qlora")
 
 
 class Qwen35QLoRALayer2Adapter(Qwen35QLoRAAdapter):
     """Completion-only SFT where the completion is layer-2 extraction JSON."""
+
+    def __init__(self, config) -> None:
+        super().__init__(config)
+        self._metric_examples: tuple[Example, ...] | None = None
 
     def build_prompt_messages(self, example: Example) -> list[dict[str, str]]:
         return build_messages(example)
@@ -62,76 +78,107 @@ class Qwen35QLoRALayer2Adapter(Qwen35QLoRAAdapter):
         }
 
     def _selection_metric_name(self) -> str:
-        return "joint_exact_match"
+        return "macro_f1"
 
-    @staticmethod
-    def _parse_metric_json(text: str) -> tuple[set[str], set[str]]:
-        payload = GenerativeLayer2Adapter._json_object(text)
-        rows = payload.get("spans")
-        if not isinstance(rows, list):
-            raise ValueError("spans must be a list")
-        spans: set[str] = set()
-        evidence: set[str] = set()
-        for row in rows:
-            if not isinstance(row, dict) or not isinstance(row.get("span"), str):
-                raise ValueError("Each item must contain a string span")
-            span = row["span"].strip()
-            if not span:
-                raise ValueError("span must not be empty")
-            spans.add(span)
-            value = row.get("evidence")
-            if value is not None:
-                if not isinstance(value, str) or not value.strip():
-                    raise ValueError("evidence must be a non-empty string or null")
-                evidence.add(value.strip())
-        return spans, evidence
+    def _prepare_validation_dataset(self, examples: Sequence[Example]) -> Dataset:
+        if self.processor is None:
+            raise RuntimeError("Processor has not been loaded")
+        dataset = self._prepare_sft_dataset(examples)
+        # Generate from the exact same prompt path and input limit as test.
+        # No gold completion or completion-dependent truncation is used here.
+        prompts = [self._format_prompt(example) for example in examples]
+        encoded = self.processor(
+            text=prompts,
+            padding=False,
+            truncation=True,
+            max_length=int(self.config.model.params.get(
+                "max_input_length", self.config.training.max_length
+            )),
+        )
+        return dataset.add_column("generation_input_ids", encoded["input_ids"])
+
+    def _create_sft_trainer(
+        self,
+        train_dataset: Dataset,
+        validation_dataset: Dataset,
+        callbacks: list[Any],
+    ) -> Trainer:
+        if self.processor is None:
+            raise RuntimeError("Processor has not been loaded")
+        pad_token_id = self.processor.tokenizer.pad_token_id
+        if pad_token_id is None:
+            raise RuntimeError("Tokenizer must define pad_token_id for SFT")
+        LOGGER.info(
+            "Validation uses free JSON generation on the full dev set; "
+            "checkpoint/early-stop metric=macro_f1 at IoU=%s",
+            self.config.model.params.get("iou_match_threshold", 0.5),
+        )
+        return Layer2CausalGenerationTrainer(
+            model=self.model,
+            args=self._training_arguments(len(train_dataset)),
+            train_dataset=train_dataset,
+            eval_dataset=validation_dataset,
+            processing_class=self.processor.tokenizer,
+            data_collator=GenerationCompletionCollator(pad_token_id),
+            compute_metrics=self._compute_sft_metrics,
+            # Generated IDs must not pass through the Layer-1 logits argmax.
+            preprocess_logits_for_metrics=None,
+            callbacks=callbacks,
+            generation_kwargs={
+                "max_new_tokens": int(self.config.model.params.get("max_new_tokens", 512)),
+                "do_sample": False,
+                "use_cache": True,
+                "pad_token_id": pad_token_id,
+                "return_dict_in_generate": False,
+                "output_scores": False,
+            },
+        )
+
+    def fit(
+        self,
+        train_examples: Sequence[Example],
+        validation_examples: Sequence[Example],
+    ) -> None:
+        # Keep original dev examples for the same extraction metric as ViT5
+        # and BIO encoders. Trainer supplies free-generated completion IDs.
+        self._metric_examples = tuple(validation_examples)
+        super().fit(train_examples, validation_examples)
 
     def _compute_sft_metrics(self, prediction: EvalPrediction) -> dict[str, float]:
-        """Evaluate teacher-forced Layer-2 JSON completions on the dev set."""
+        """Score free-generated JSON completions, without teacher forcing."""
 
         if self.processor is None:
             raise RuntimeError("Processor has not been loaded")
+        if self._metric_examples is None:
+            raise RuntimeError("Validation examples were not registered")
         tokenizer = self.processor.tokenizer
         predicted_ids = np.asarray(prediction.predictions)
-        label_ids = np.asarray(prediction.label_ids)
-        span_exact = evidence_exact = joint_exact = parsed = 0
+        if predicted_ids.ndim != 2:
+            raise ValueError("Layer-2 validation expects generated token IDs, not logits")
+        if len(predicted_ids) != len(self._metric_examples):
+            raise ValueError(
+                "QLoRA validation predictions do not match validation examples"
+            )
 
-        for predicted_row, label_row in zip(
-            predicted_ids, label_ids, strict=True
-        ):
-            shifted_predictions = predicted_row[:-1]
-            shifted_labels = label_row[1:]
-            supervised = shifted_labels != -100
-            gold_text = tokenizer.decode(
-                shifted_labels[supervised].tolist(),
-                skip_special_tokens=True,
-            )
-            predicted_text = tokenizer.decode(
-                shifted_predictions[supervised].tolist(),
-                skip_special_tokens=True,
-            )
-            gold_spans, gold_evidence = self._parse_metric_json(gold_text)
-            try:
-                predicted_spans, predicted_evidence = self._parse_metric_json(
-                    predicted_text
+        pad_token_id = tokenizer.pad_token_id
+        if pad_token_id is None:
+            raise RuntimeError("Tokenizer must define pad_token_id for validation")
+        predicted_ids = np.where(predicted_ids < 0, pad_token_id, predicted_ids)
+        decoded = tokenizer.batch_decode(predicted_ids, skip_special_tokens=True)
+        extracted: list[Layer2Prediction] = []
+        for example, predicted_text in zip(self._metric_examples, decoded, strict=True):
+            extracted.append(
+                GenerativeLayer2Adapter.parse_prediction(
+                    predicted_text,
+                    example,
                 )
-                parsed += 1
-            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
-                predicted_spans, predicted_evidence = set(), set()
+            )
 
-            same_spans = predicted_spans == gold_spans
-            same_evidence = predicted_evidence == gold_evidence
-            span_exact += same_spans
-            evidence_exact += same_evidence
-            joint_exact += same_spans and same_evidence
-
-        size = len(label_ids)
-        return {
-            "span_exact_match": span_exact / size if size else 0.0,
-            "evidence_exact_match": evidence_exact / size if size else 0.0,
-            "joint_exact_match": joint_exact / size if size else 0.0,
-            "parse_success_rate": parsed / size if size else 0.0,
-        }
+        return extraction_validation_metrics(
+            self._metric_examples,
+            extracted,
+            self.config.model.params,
+        )
 
     def _predict_batch(self, examples):
         return GenerativeLayer2Adapter._predict_batch(self, examples)
@@ -151,5 +198,8 @@ class Qwen35QLoRALayer2Adapter(Qwen35QLoRAAdapter):
                 "method": "qlora_sft",
                 "prompt_version": PROMPT_VERSION,
                 "input_mode": "gold_question_answer_context",
+                "selection_metric": "macro_f1",
+                "validation_mode": "free_generation_extraction",
+                "iou_match_threshold": self.config.model.params.get("iou_match_threshold", 0.5),
             },
         )
