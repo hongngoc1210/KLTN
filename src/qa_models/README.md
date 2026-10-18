@@ -177,6 +177,14 @@ python qa_models/main.py \
   --config-file qa_models/configs/layer2/gemma4_e4b_zero_shot.toml \
   --stage evaluate
 
+# Few-shot tầng 2: tự chọn 5 kiểu demonstration từ train, không cập nhật trọng số.
+python qa_models/main.py \
+  --config-file qa_models/configs/layer2/qwen35_4b_few_shot.toml \
+  --stage evaluate
+python qa_models/main.py \
+  --config-file qa_models/configs/layer2/gemma4_e4b_few_shot.toml \
+  --stage evaluate
+
 # Qwen tầng 2 SFT bằng QLoRA rồi đánh giá test.
 python qa_models/main.py \
   --config-file qa_models/configs/layer2/qwen35_4b_qlora.toml \

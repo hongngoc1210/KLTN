@@ -232,9 +232,10 @@ class MultimodalZeroShotLayer1Adapter(BaseModelAdapter):
         batch_size = max(1, int(self.config.evaluation.batch_size))
         predictions: list[Prediction] = []
         total_batches = (len(examples) + batch_size - 1) // batch_size
+        method = str(self.config.model.method).replace("_", "-").capitalize()
         progress = tqdm(
             total=total_batches,
-            desc=f"Zero-shot {self.config.model.name}",
+            desc=f"{method} {self.config.model.name}",
             unit="batch",
             file=sys.stdout,
             dynamic_ncols=True,

@@ -151,11 +151,24 @@ class ViT5Layer2Adapter(BaseModelAdapter):
         if self.tokenizer is None:
             raise RuntimeError("Tokenizer has not been loaded")
         predicted_ids = prediction.predictions[0] if isinstance(prediction.predictions, tuple) else prediction.predictions
-        label_ids = np.where(prediction.label_ids == -100, self.tokenizer.pad_token_id, prediction.label_ids)
-        predicted = self.tokenizer.batch_decode(predicted_ids, skip_special_tokens=True)
-        gold = self.tokenizer.batch_decode(label_ids, skip_special_tokens=True)
+        predicted = self._decode_token_ids(predicted_ids)
+        gold = self._decode_token_ids(prediction.label_ids)
         exact = sum(a.strip() == b.strip() for a, b in zip(predicted, gold, strict=True))
         return {"joint_exact_match": exact / len(gold) if gold else 0.0}
+
+    def _decode_token_ids(self, token_ids) -> list[str]:
+        """Decode generated/label IDs after replacing Trainer's -100 padding."""
+        if self.tokenizer is None:
+            raise RuntimeError("Tokenizer has not been loaded")
+        pad_token_id = self.tokenizer.pad_token_id
+        if pad_token_id is None:
+            pad_token_id = 0
+        safe_ids = np.asarray(token_ids)
+        safe_ids = np.where(safe_ids < 0, pad_token_id, safe_ids).astype(
+            np.int64,
+            copy=False,
+        )
+        return self.tokenizer.batch_decode(safe_ids, skip_special_tokens=True)
 
     def _trainer(self, train=None, validation=None) -> Seq2SeqTrainer:
         if self.model is None or self.tokenizer is None:
@@ -202,7 +215,7 @@ class ViT5Layer2Adapter(BaseModelAdapter):
             self.trainer = self._trainer()
         output = self.trainer.predict(self._dataset(examples, with_labels=False))
         ids = output.predictions[0] if isinstance(output.predictions, tuple) else output.predictions
-        decoded = self.tokenizer.batch_decode(ids, skip_special_tokens=True)
+        decoded = self._decode_token_ids(ids)
         result = []
         for example, text in zip(examples, decoded, strict=True):
             spans, evidence, failed = GenerativeLayer2Adapter.parse_extraction(text, example)

@@ -6,7 +6,17 @@ from pathlib import Path
 import numpy as np
 from transformers import EvalPrediction
 
+from qa_models.models.gemma4_e4b_few_shot_layer2 import (
+    Gemma4E4BLayer2FewShotAdapter,
+)
+from qa_models.models.qwen35_4b_few_shot_layer2 import (
+    Qwen35Layer2FewShotAdapter,
+)
 from qa_models.models.qwen35_4b_qlora_layer2 import Qwen35QLoRALayer2Adapter
+from qa_models.prompts.layer2_few_shot import (
+    build_few_shot_messages,
+    target_json,
+)
 from qa_models.prompts.layer2_zero_shot import PROMPT_VERSION, build_messages
 from qa_models.src.config_loader import load_adapter_class, load_config
 from qa_models.src.records import Example
@@ -15,6 +25,9 @@ from qa_models.tasks.layer2.encoder_adapter import (
     JointBIOLayer2Adapter,
 )
 from qa_models.tasks.layer2.generative_adapter import GenerativeLayer2Adapter
+from qa_models.tasks.layer2.few_shot_adapter import (
+    MultimodalFewShotLayer2Adapter,
+)
 from qa_models.tasks.layer2.metrics import layer2_metrics
 from qa_models.tasks.layer2.records import Layer2Prediction, target_from_example
 from qa_models.tasks.layer2.vit5_adapter import ViT5Layer2Adapter
@@ -48,8 +61,10 @@ class Layer2ConfigTests(unittest.TestCase):
             "mmbert_base.toml",
             "vit5_base.toml",
             "qwen35_4b_zero_shot.toml",
+            "qwen35_4b_few_shot.toml",
             "qwen35_4b_qlora.toml",
             "gemma4_e4b_zero_shot.toml",
+            "gemma4_e4b_few_shot.toml",
         }
         self.assertEqual({path.name for path in directory.glob("*.toml")}, expected)
         for path in directory.glob("*.toml"):
@@ -58,6 +73,20 @@ class Layer2ConfigTests(unittest.TestCase):
                 load_adapter_class(config.model.adapter)
                 self.assertEqual(config.model.params["task"], "layer2")
                 self.assertEqual(config.evaluation.split, "test")
+
+    def test_layer2_few_shot_configs_disable_training(self) -> None:
+        directory = Path(__file__).resolve().parents[1] / "configs" / "layer2"
+        expected = {
+            "qwen35_4b_few_shot.toml": Qwen35Layer2FewShotAdapter,
+            "gemma4_e4b_few_shot.toml": Gemma4E4BLayer2FewShotAdapter,
+        }
+        for filename, adapter_class in expected.items():
+            with self.subTest(filename=filename):
+                config = load_config(directory / filename)
+                self.assertIs(load_adapter_class(config.model.adapter), adapter_class)
+                self.assertEqual(config.model.method, "few_shot")
+                self.assertFalse(config.training.enabled)
+                self.assertEqual(config.model.params["shots_per_type"], 1)
 
 
 class Layer2DataAndMetricTests(unittest.TestCase):
@@ -119,6 +148,28 @@ class Layer2GenerativeTests(unittest.TestCase):
         self.assertIn("evidence là null", source)
         self.assertLess(source.index("ANSWER:"), source.index("CONTEXT:"))
 
+    def test_vit5_replaces_negative_padding_before_decode(self) -> None:
+        class FakeTokenizer:
+            pad_token_id = 7
+
+            def batch_decode(self, token_ids, **kwargs):
+                self.kwargs = kwargs
+                self.token_ids = token_ids.tolist()
+                return ["decoded"]
+
+        config_path = (
+            Path(__file__).resolve().parents[1]
+            / "configs"
+            / "layer2"
+            / "vit5_base.toml"
+        )
+        adapter = ViT5Layer2Adapter(load_config(config_path))
+        adapter.tokenizer = FakeTokenizer()
+        decoded = adapter._decode_token_ids(np.array([[1, -100, 2]]))
+        self.assertEqual(decoded, ["decoded"])
+        self.assertEqual(adapter.tokenizer.token_ids, [[1, 7, 2]])
+        self.assertTrue(adapter.tokenizer.kwargs["skip_special_tokens"])
+
     def test_parser_accepts_exact_substrings(self) -> None:
         example = _example()
         spans, evidence, failed = GenerativeLayer2Adapter.parse_extraction(
@@ -137,6 +188,76 @@ class Layer2GenerativeTests(unittest.TestCase):
         self.assertTrue(failed)
         self.assertEqual(spans, ())
         self.assertEqual(evidence, ())
+
+    def test_few_shot_prompt_contains_gold_only_for_demonstrations(self) -> None:
+        demonstration = _example()
+        query = Example(
+            example_id="query",
+            context="Đà Nẵng thuộc miền Trung.",
+            question="Đà Nẵng thuộc miền nào?",
+            answer="Đà Nẵng thuộc miền Bắc.",
+            label="extrinsic_hallucination",
+            metadata={"span_label": []},
+        )
+        messages = build_few_shot_messages(query, [demonstration])
+        self.assertEqual(len(messages), 4)
+        self.assertEqual(messages[2]["content"], target_json(demonstration))
+        self.assertIn(query.answer, messages[-1]["content"])
+        self.assertNotIn('"spans"', messages[-1]["content"])
+
+    def test_few_shot_selection_covers_five_extraction_patterns(self) -> None:
+        examples = [
+            Example("no", "c", "q", "a", "no_hallucination", {"span_label": []}),
+            Example(
+                "contra",
+                "Hà Nội đúng.",
+                "q",
+                "Huế sai.",
+                "intrinsic_hallucination",
+                {"span_label": [{"span": "Huế", "evidence": "Hà Nội đúng.", "label": "contradicted"}]},
+            ),
+            Example(
+                "unsupported",
+                "c",
+                "q",
+                "thêm",
+                "extrinsic_hallucination",
+                {"span_label": [{"span": "thêm", "evidence": None, "label": "unsupported", "repair_action": "delete_span"}]},
+            ),
+            Example(
+                "replace",
+                "quy định pháp luật",
+                "q",
+                "Bộ luật Dân sự",
+                "extrinsic_hallucination",
+                {"span_label": [{"span": "Bộ luật Dân sự", "evidence": "quy định pháp luật", "label": "unsupported", "repair_action": "replace_span"}]},
+            ),
+            Example(
+                "mixed",
+                "c",
+                "q",
+                "sai và thêm",
+                "mixed_hallucination",
+                {"span_label": [{"span": "sai", "evidence": "c", "label": "contradicted"}, {"span": "thêm", "evidence": None, "label": "unsupported"}]},
+            ),
+        ]
+        selected, categories = MultimodalFewShotLayer2Adapter.select_demonstrations(
+            examples,
+            shots_per_type=1,
+            seed=42,
+            max_demo_chars=1000,
+        )
+        self.assertEqual(len(selected), 5)
+        self.assertEqual(
+            categories,
+            [
+                "no_hallucination",
+                "contradicted",
+                "unsupported_null",
+                "unsupported_replace",
+                "multiple_spans",
+            ],
+        )
 
     def test_qwen_qlora_selects_by_layer2_joint_exact_match(self) -> None:
         config_path = (

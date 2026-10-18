@@ -45,13 +45,16 @@ COMPACT_EXTRACTION_RULES = (
 )
 
 
-def build_messages(example: Example) -> list[dict[str, str]]:
-    user = (
+def build_user_prompt(example: Example) -> str:
+    return (
         f"CONTEXT:\n{example.context}\n\n"
         f"QUESTION:\n{example.question}\n\n"
         f"ANSWER:\n{example.answer}"
     )
+
+
+def build_messages(example: Example) -> list[dict[str, str]]:
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user},
+        {"role": "user", "content": build_user_prompt(example)},
     ]
