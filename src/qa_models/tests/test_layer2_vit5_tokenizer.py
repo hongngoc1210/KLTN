@@ -9,7 +9,9 @@ from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import Mock
 
+import numpy as np
 import torch
 from tokenizers import Tokenizer, decoders, models, normalizers, pre_tokenizers, processors
 from transformers import (
@@ -17,13 +19,19 @@ from transformers import (
     PreTrainedTokenizerFast,
     T5Config,
     T5ForConditionalGeneration,
+    EvalPrediction,
 )
 
 from qa_models.src.config_loader import load_config
 from qa_models.src.data import load_examples
 from qa_models.src.records import Example
 from qa_models.tasks.layer2.records import validate_layer2_examples
-from qa_models.tasks.layer2.vit5_adapter import JSON_TOKENIZER_POLICY, ViT5Layer2Adapter
+from qa_models.tasks.layer2.vit5_adapter import (
+    JSON_TOKENIZER_POLICY,
+    JSON_SENTINELS,
+    VIT5_TRAINING_POLICY,
+    ViT5Layer2Adapter,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,7 +42,9 @@ def tokenizer() -> PreTrainedTokenizerFast:
     # are absent, while NFKC changes ellipsis. No network/model download.
     alphabet = sorted(set(string.ascii_letters + string.digits + string.punctuation
                           + "HuếHàNộiqđúngsai") - set("{}\\"))
-    vocabulary = [(token, 0.0) for token in ["<pad>", "</s>", "<unk>", "▁", *alphabet]]
+    vocabulary = [(token, 0.0) for token in [
+        "<pad>", "</s>", "<unk>", "▁", *JSON_SENTINELS.values(), *alphabet
+    ]]
     backend = Tokenizer(models.Unigram(vocabulary, unk_id=2))
     backend.normalizer = normalizers.NFKC()
     backend.pre_tokenizer = pre_tokenizers.Metaspace(prepend_scheme="always")
@@ -43,7 +53,8 @@ def tokenizer() -> PreTrainedTokenizerFast:
         single="$A </s>", special_tokens=[("</s>", 1)]
     )
     return PreTrainedTokenizerFast(
-        tokenizer_object=backend, pad_token="<pad>", eos_token="</s>", unk_token="<unk>"
+        tokenizer_object=backend, pad_token="<pad>", eos_token="</s>", unk_token="<unk>",
+        additional_special_tokens=list(JSON_SENTINELS.values()),
     )
 
 
@@ -61,11 +72,49 @@ def adapter() -> ViT5Layer2Adapter:
         vocab_size=len(result.tokenizer), d_model=16, d_ff=32,
         num_layers=1, num_decoder_layers=1, num_heads=2,
         decoder_start_token_id=0, pad_token_id=0, eos_token_id=1,
+        dropout_rate=0.0,
     ))
     return result
 
 
 class ViT5JSONTokenizerTests(unittest.TestCase):
+    def test_json_setup_does_not_invent_unused_unicode_tokens(self):
+        model = adapter()
+        original = set(model.tokenizer.get_vocab())
+        model._configure_json_tokenizer()
+        self.assertEqual(set(model.tokenizer.get_vocab()), original)
+        for character in ("\u2004", "\u206e", "\u2036"):
+            self.assertEqual(model.tokenizer.convert_tokens_to_ids(character),
+                             model.tokenizer.unk_token_id)
+        model._add_training_characters([sample()])
+        self.assertNotEqual(model.tokenizer.convert_tokens_to_ids("“"),
+                            model.tokenizer.unk_token_id)
+        for character in ("\u2004", "\u206e", "\u2036"):
+            self.assertEqual(model.tokenizer.convert_tokens_to_ids(character),
+                             model.tokenizer.unk_token_id)
+
+    def test_json_uses_pretrained_rows_and_extra_characters_preserve_old_weights(self):
+        with torch.random.fork_rng():
+            torch.manual_seed(42)
+            model = adapter()
+            original = model.model.get_input_embeddings().weight.detach().clone()
+            model._configure_json_tokenizer()
+            model._resize_token_embeddings()
+            weights = model.model.get_input_embeddings().weight.detach()
+            self.assertTrue(torch.equal(weights[:len(original)], original))
+            self.assertEqual(weights.shape, original.shape)
+            for character, anchor in JSON_SENTINELS.items():
+                ids = model.tokenizer(model._model_text(character),
+                                      add_special_tokens=False)["input_ids"]
+                self.assertIn(model.tokenizer.convert_tokens_to_ids(anchor), ids)
+            self.assertEqual(model.model.get_input_embeddings().weight.data_ptr(),
+                             model.model.get_output_embeddings().weight.data_ptr())
+            learned = weights.clone()
+            model._add_training_characters([sample()])
+            self.assertTrue(torch.equal(
+                model.model.get_input_embeddings().weight[:len(learned)], learned
+            ))
+
     def test_fix_preserves_json_escapes_and_literal_contents(self):
         model = adapter()
         x = sample()
@@ -87,9 +136,38 @@ class ViT5JSONTokenizerTests(unittest.TestCase):
             self.assertEqual(model.tokenizer.convert_tokens_to_ids(token), index)
         self.assertGreaterEqual(model.model.get_input_embeddings().num_embeddings,
                                 len(model.tokenizer))
-        for token in ("{", "}", "\\"):
-            self.assertNotIn(model.tokenizer.convert_tokens_to_ids(token),
-                             model.tokenizer.all_special_ids)
+        for token in JSON_SENTINELS.values():
+            self.assertIn(model.tokenizer.convert_tokens_to_ids(token),
+                          dataset[0]["labels"])
+
+    def test_literal_special_tokens_inside_strings_are_not_json_syntax(self):
+        model = adapter()
+        model._configure_json_tokenizer()
+        x = replace(sample(), answer="<extra_id_0> <pad> <unk>", metadata={
+            "span_label": [{"span": "<extra_id_0> <pad> <unk>", "evidence": None}],
+        })
+        model._add_training_characters([x])
+        dataset = model._dataset([x], with_labels=True)
+        restored = model._decode_token_ids([dataset[0]["labels"]])[0]
+        self.assertEqual(json.loads(restored), json.loads(model._target(x)))
+
+    def test_decode_does_not_repair_missing_closing_object(self):
+        model = adapter()
+        model._configure_json_tokenizer()
+        encoded = model.tokenizer(model._model_text('{"spans":[]'),
+                                  add_special_tokens=False)["input_ids"]
+        raw = model._decode_token_ids([encoded])[0]
+        self.assertEqual(raw, '{"spans":[]')
+        with self.assertRaises(ValueError):
+            json.loads(raw)
+
+    def test_codec_handles_torch_numpy_and_list_padding_consistently(self):
+        model = adapter()
+        model._configure_json_tokenizer()
+        ids = [0] + model.tokenizer(model._model_text('{"spans":[]}'))["input_ids"] + [-100]
+        for rows in ([ids], np.array([ids]), torch.tensor([ids])):
+            with self.subTest(container=type(rows).__name__):
+                self.assertEqual(model._decode_token_ids(rows), ['{"spans":[]}'])
 
     def test_target_preflight_rejects_missing_json_tokens(self):
         model = adapter()
@@ -130,6 +208,111 @@ class ViT5JSONTokenizerTests(unittest.TestCase):
         loss.backward()
         self.assertIsNotNone(model.model.get_input_embeddings().weight.grad)
 
+    def test_trainer_does_not_double_mean_loss_or_skip_accumulation(self):
+        model = adapter()
+        model._configure_json_tokenizer()
+        model._add_training_characters([sample()])
+        for module in model.model.modules():
+            if isinstance(module, torch.nn.Dropout):
+                module.p = 0.0
+        with TemporaryDirectory() as temporary:
+            model.config = replace(model.config, training=replace(
+                model.config.training, output_dir=Path(temporary),
+                gradient_accumulation_steps=4,
+            ))
+            dataset = model._dataset([sample()], with_labels=True)
+            trainer = model._trainer(dataset, dataset)
+            batch = trainer.data_collator([{
+                key: value for key, value in dataset[0].items() if key != "example_id"
+            }])
+            self.assertFalse(trainer.model_accepts_loss_kwargs)
+            # Simulate the DataParallel scaling decision without requiring GPUs.
+            trainer.args._n_gpu = 2
+            items = (batch["labels"] != -100).sum()
+            direct = model.model(**batch).loss
+            actual = trainer.compute_loss(model.model, dict(batch), num_items_in_batch=items)
+            self.assertAlmostEqual(actual.item(), direct.item(), places=6)
+            trainer.current_gradient_accumulation_steps = 4
+            trainer.accelerator.backward = Mock()
+            returned = trainer.training_step(model.model, dict(batch), num_items_in_batch=items)
+            self.assertAlmostEqual(returned.item(), direct.item() / 4, places=6)
+            backward_loss = trainer.accelerator.backward.call_args.args[0]
+            self.assertAlmostEqual(backward_loss.item(), direct.item() / 4, places=6)
+
+    def test_demo_can_keep_last_model_without_changing_selection_metric(self):
+        model = adapter()
+        self.assertTrue(model._args(inference=False).load_best_model_at_end)
+        model.config = replace(model.config, training=replace(
+            model.config.training, params={**model.config.training.params,
+                                          "load_best_model_at_end": False,
+                                          "early_stopping_patience": 0},
+        ))
+        arguments = model._args(inference=False)
+        self.assertFalse(arguments.load_best_model_at_end)
+        self.assertEqual(arguments.metric_for_best_model, "macro_f1")
+
+    def test_parse_errors_log_raw_outputs_without_relaxing_metrics(self):
+        model = adapter()
+        model._configure_json_tokenizer()
+        model._add_training_characters([sample()])
+        model._metric_examples = [sample()]
+        ids = model.tokenizer("]]]]]", add_special_tokens=False)["input_ids"]
+        with self.assertLogs("qa_models.layer2.vit5", level="WARNING") as captured:
+            metrics = model._compute_metrics(EvalPrediction(
+                predictions=np.array([ids]), label_ids=np.array([ids])
+            ))
+        self.assertEqual(metrics["parse_error_rate"], 1.0)
+        self.assertEqual(metrics["macro_f1"], 0.0)
+        self.assertIn("json-escape", captured.output[0])
+        self.assertIn("]]]]]", captured.output[0])
+
+    def test_tiny_model_can_learn_and_freely_generate_json(self):
+        threads = torch.get_num_threads()
+        try:
+            torch.set_num_threads(1)
+            with torch.random.fork_rng():
+                torch.manual_seed(42)
+                model = adapter()
+                x = replace(sample(), metadata={"span_label": []})
+                model._configure_json_tokenizer()
+                model._add_training_characters([x])
+                dataset = model._dataset([x], with_labels=True)
+                batch = {key: torch.tensor([value])
+                         for key, value in dataset[0].items() if key != "example_id"}
+                optimizer = torch.optim.AdamW(model.model.parameters(), lr=0.01,
+                                              weight_decay=0.0)
+                for _ in range(120):
+                    model.model.train()
+                    optimizer.zero_grad()
+                    model.model(**batch).loss.backward()
+                    optimizer.step()
+                model.model.eval()
+                with torch.inference_mode():
+                    generated = model.model.generate(
+                        input_ids=batch["input_ids"], attention_mask=batch["attention_mask"],
+                        max_new_tokens=32, do_sample=False,
+                    )
+                # No gold tokens, forced prefix, or JSON repair in generation.
+                self.assertEqual(json.loads(model._decode_token_ids(generated)[0]),
+                                 {"spans": []})
+        finally:
+            torch.set_num_threads(threads)
+
+    def test_old_training_policy_is_loadable_but_not_resumable(self):
+        model = adapter()
+        model._configure_json_tokenizer()
+        model._add_training_characters([sample()])
+        with TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            model.save(directory)
+            # Existing artifacts remain usable for diagnosis/evaluation.
+            ViT5Layer2Adapter(model.config).load(directory)
+            with self.assertRaisesRegex(ValueError, "predates"):
+                model._check_resume_training_policy(directory)
+            model.model.config.layer2_training_policy = VIT5_TRAINING_POLICY
+            model.save(directory)
+            model._check_resume_training_policy(directory)
+
     def test_save_reload_preserves_tokens_and_rejects_legacy_resume(self):
         model = adapter()
         model._configure_json_tokenizer()
@@ -141,7 +324,7 @@ class ViT5JSONTokenizerTests(unittest.TestCase):
             restored = ViT5Layer2Adapter(model.config)
             restored.load(directory)
             self.assertEqual(model.tokenizer.get_vocab(), restored.tokenizer.get_vocab())
-            ids = model.tokenizer(model._target(sample()))["input_ids"]
+            ids = model.tokenizer(model._model_text(model._target(sample())))["input_ids"]
             self.assertEqual(json.loads(restored._decode_token_ids([ids])[0]),
                              json.loads(model._target(sample())))
             # The same policy with different token IDs must not resume either.

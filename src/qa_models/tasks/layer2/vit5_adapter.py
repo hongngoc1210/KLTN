@@ -5,10 +5,12 @@ from __future__ import annotations
 import json
 import logging
 import os
+import unicodedata
 from pathlib import Path
 from typing import Sequence
 
 import numpy as np
+import torch
 from datasets import Dataset
 from tokenizers import AddedToken, decoders, pre_tokenizers
 from transformers import (
@@ -18,6 +20,7 @@ from transformers import (
     PreTrainedTokenizerFast,
     Seq2SeqTrainer,
     Seq2SeqTrainingArguments,
+    set_seed,
 )
 from transformers.trainer_callback import PrinterCallback
 from transformers.trainer_utils import get_last_checkpoint
@@ -34,7 +37,9 @@ from qa_models.utils.io import write_json
 
 
 LOGGER = logging.getLogger("qa_models.layer2.vit5")
-JSON_TOKENIZER_POLICY = "vit5-layer2-lossless-json-v1"
+JSON_TOKENIZER_POLICY = "vit5-layer2-json-sentinel-codec"
+VIT5_TRAINING_POLICY = "sentinel_json_source_only_and_mean_loss"
+JSON_SENTINELS = {"{": "<extra_id_0>", "}": "<extra_id_1>", "\\": "<extra_id_2>"}
 
 
 class ViT5Layer2Adapter(BaseModelAdapter):
@@ -44,6 +49,7 @@ class ViT5Layer2Adapter(BaseModelAdapter):
         self.model = None
         self.trainer: Seq2SeqTrainer | None = None
         self._metric_examples: list[Example] | None = None
+        self._json_sentinels: dict[str, str] = {}
 
     def _hf_token(self) -> str | None:
         name = str(self.config.model.params.get("hf_token_env", "HF_TOKEN"))
@@ -55,6 +61,7 @@ class ViT5Layer2Adapter(BaseModelAdapter):
     def _load_base(self) -> None:
         if self.tokenizer is not None and self.model is not None:
             return
+        set_seed(self.config.training.seed)
         token = self._hf_token()
         # transformers 5 maps this legacy checkpoint to the new T5Tokenizer,
         # whose constructor expects a sequence vocabulary. ViT5's tokenizer
@@ -70,6 +77,7 @@ class ViT5Layer2Adapter(BaseModelAdapter):
             self.config.model.checkpoint,
             token=token,
         )
+        self.model.config.layer2_training_policy = VIT5_TRAINING_POLICY
         self._resize_token_embeddings()
 
     def _configure_json_tokenizer(self) -> None:
@@ -85,15 +93,28 @@ class ViT5Layer2Adapter(BaseModelAdapter):
         self.tokenizer.backend_tokenizer.decoder = decoders.Metaspace(
             replacement="▁", prepend_scheme="first"
         )
-        self.tokenizer.add_tokens([
-            AddedToken(character, normalized=False, special=False)
-            for character in ("{", "}", "\\")
-        ])
-        # Fixed Unicode General Punctuation coverage (including curly quotes,
-        # ellipsis and bidi controls). This is protocol-level coverage, not a
-        # vocabulary inferred from validation/test examples.
-        self._add_lossless_characters([chr(code) for code in range(0x2000, 0x2070)])
+        self._register_json_sentinels()
+        # Do not prefill Unicode ranges: their unseen control/space tokens
+        # get random output rows and can dominate early greedy generation.
+        # Extra characters are added only from actual training inputs below.
         self.tokenizer.init_kwargs["layer2_json_tokenizer_policy"] = JSON_TOKENIZER_POLICY
+
+    def _register_json_sentinels(self) -> None:
+        unknown = self.tokenizer.unk_token_id
+        ids = [self.tokenizer.convert_tokens_to_ids(token) for token in JSON_SENTINELS.values()]
+        if any(index is None or index == unknown for index in ids) or len(set(ids)) != 3:
+            raise ValueError("ViT5 JSON requires three pretrained T5 sentinel tokens")
+        self._json_sentinels = dict(JSON_SENTINELS)
+
+    def _model_text(self, text: str) -> str:
+        """Lossless serialization, not an output repair or generation constraint."""
+        # Escape literal special-token spellings inside text so their IDs
+        # cannot be confused with JSON syntax or disappear during decoding.
+        for token in set(self.tokenizer.all_special_tokens) | set(self._json_sentinels.values()):
+            if token:
+                escaped = f"\\u{ord(token[0]):04x}" + token[1:]
+                text = text.replace(token, escaped)
+        return text.translate(str.maketrans(self._json_sentinels))
 
     def _add_lossless_characters(self, characters: Sequence[str]) -> int:
         if self.tokenizer is None:
@@ -116,7 +137,43 @@ class ViT5Layer2Adapter(BaseModelAdapter):
         current_size = self.model.get_input_embeddings().num_embeddings
         # Some T5 checkpoints have unused padded vocabulary rows; keep them.
         if len(self.tokenizer) > current_size:
-            self.model.resize_token_embeddings(len(self.tokenizer))
+            self.model.resize_token_embeddings(len(self.tokenizer), mean_resizing=False)
+            self._initialize_added_embeddings(current_size)
+
+    def _initialize_added_embeddings(self, original_size: int) -> None:
+        """Anchor new rows in T5's learned space, not arbitrary Unicode logits.
+
+        JSON syntax uses pretrained sentinel IDs without adding embedding rows.
+        Other new characters use a known typographic equivalent, or the learned UNK row.
+        Small noise separates aliases; pretrained rows are never modified.
+        """
+        weights = self.model.get_input_embeddings().weight
+        aliases = {
+            "“": ('"',), "”": ('"',), "‘": ("'",), "’": ("'",),
+            "–": ("-",), "—": ("-",), "−": ("-",), "…": ("...",),
+        }
+        unknown = self.tokenizer.unk_token_id
+        if unknown is None or unknown >= original_size:
+            raise ValueError("ViT5 requires a pretrained UNK embedding")
+        with torch.no_grad():
+            for index in range(original_size, len(self.tokenizer)):
+                character = self.tokenizer.convert_ids_to_tokens(index)
+                candidates = aliases.get(
+                    character, (unicodedata.normalize("NFKC", character),)
+                )
+                donors = [unknown]
+                for candidate in candidates:
+                    token_id = self.tokenizer.convert_tokens_to_ids(candidate)
+                    if token_id is not None and token_id != unknown and token_id < original_size:
+                        donors = [token_id]
+                        break
+                    ids = self.tokenizer(candidate, add_special_tokens=False)["input_ids"]
+                    if ids and all(0 <= value < original_size and value != unknown for value in ids):
+                        donors = ids
+                        break
+                reference = weights[donors].mean(dim=0)
+                noise = torch.randn_like(reference) * reference.std().clamp_min(0.1) * 0.01
+                weights[index].copy_(reference + noise)
 
     def _add_training_characters(self, examples: Sequence[Example]) -> None:
         """Extend only from training inputs, never dev/test text or labels.
@@ -132,7 +189,7 @@ class ViT5Layer2Adapter(BaseModelAdapter):
             for example in examples
             for text in (example.question, example.answer, example.context)
             for character in nfc(text)
-            if character != " "
+            if character not in {" ", *JSON_SENTINELS}
         })
         added = self._add_lossless_characters(characters)
         self._resize_token_embeddings()
@@ -151,6 +208,17 @@ class ViT5Layer2Adapter(BaseModelAdapter):
                 f"Incompatible ViT5 JSON tokenizer in {directory}. Do not resume "
                 "a legacy run or a run with different training vocabulary. "
                 "Use a fresh training.output_dir and resume_from_checkpoint=false."
+            )
+
+    @staticmethod
+    def _check_resume_training_policy(directory: Path) -> None:
+        saved = json.loads((directory / "config.json").read_text(encoding="utf-8"))
+        if saved.get("layer2_training_policy") != VIT5_TRAINING_POLICY:
+            raise ValueError(
+                f"Cannot resume ViT5 checkpoint {directory}: it predates the "
+                "sentinel JSON serialization / mean-loss correction. "
+                "Keep the checkpoint for diagnosis, but use a new training.output_dir "
+                "and resume_from_checkpoint=false for the corrected run."
             )
 
     @staticmethod
@@ -176,7 +244,7 @@ class ViT5Layer2Adapter(BaseModelAdapter):
     def _dataset(self, examples: Sequence[Example], *, with_labels: bool) -> Dataset:
         if self.tokenizer is None:
             raise RuntimeError("Tokenizer has not been loaded")
-        sources = [self._source(example) for example in examples]
+        sources = [self._model_text(self._source(example)) for example in examples]
         encoded = self.tokenizer(
             sources,
             truncation=True,
@@ -189,13 +257,11 @@ class ViT5Layer2Adapter(BaseModelAdapter):
             targets = [self._target(example) for example in examples]
             # Never silently truncate a JSON label or train on a lossy target.
             labels = self.tokenizer(
-                text_target=targets,
+                text_target=[self._model_text(target) for target in targets],
                 truncation=False,
                 padding=False,
             )["input_ids"]
-            decoded = self.tokenizer.batch_decode(
-                labels, skip_special_tokens=True, clean_up_tokenization_spaces=False
-            )
+            decoded = self._decode_token_ids(labels)
             limit = int(self.config.model.params.get("max_target_length", 256))
             for example, target, ids, restored in zip(
                 examples, targets, labels, decoded, strict=True
@@ -241,7 +307,9 @@ class ViT5Layer2Adapter(BaseModelAdapter):
             eval_strategy="no" if inference else "epoch",
             save_strategy="no" if inference else "epoch",
             logging_steps=int(params.get("logging_steps", 50)),
-            load_best_model_at_end=not inference,
+            load_best_model_at_end=(
+                not inference and bool(params.get("load_best_model_at_end", True))
+            ),
             metric_for_best_model=None if inference else "macro_f1",
             greater_is_better=None if inference else True,
             save_total_limit=int(params.get("save_total_limit", 2)),
@@ -279,6 +347,13 @@ class ViT5Layer2Adapter(BaseModelAdapter):
                 GenerativeLayer2Adapter.parse_prediction(text, example)
             )
 
+        for item in [item for item in extracted if item.parse_error][:3]:
+            LOGGER.warning(
+                "ViT5 invalid generated JSON: example_id=%s raw_output=%r",
+                item.example_id,
+                (item.raw_output or "")[:500],
+            )
+
         return extraction_validation_metrics(
             self._metric_examples,
             extracted,
@@ -292,14 +367,26 @@ class ViT5Layer2Adapter(BaseModelAdapter):
         pad_token_id = self.tokenizer.pad_token_id
         if pad_token_id is None:
             pad_token_id = 0
-        safe_ids = np.asarray(token_ids)
-        safe_ids = np.where(safe_ids < 0, pad_token_id, safe_ids).astype(
-            np.int64,
-            copy=False,
+        if not self._json_sentinels:
+            safe_ids = np.asarray(token_ids)
+            safe_ids = np.where(safe_ids < 0, pad_token_id, safe_ids).astype(np.int64, copy=False)
+            return self.tokenizer.batch_decode(
+                safe_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
+            )
+        syntax_ids = {
+            self.tokenizer.convert_tokens_to_ids(token) for token in self._json_sentinels.values()
+        }
+        removable = set(self.tokenizer.all_special_ids) - syntax_ids
+        safe_ids = []
+        for row in token_ids:
+            values = [int(index) for index in row]
+            safe_ids.append([index for index in values if index >= 0 and index not in removable])
+        decoded = self.tokenizer.batch_decode(
+            safe_ids, skip_special_tokens=False, clean_up_tokenization_spaces=False
         )
-        return self.tokenizer.batch_decode(
-            safe_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
-        )
+        for token, character in ((token, char) for char, token in self._json_sentinels.items()):
+            decoded = [text.replace(token, character) for text in decoded]
+        return decoded
 
     def _trainer(self, train=None, validation=None) -> Seq2SeqTrainer:
         if self.model is None or self.tokenizer is None:
@@ -330,6 +417,10 @@ class ViT5Layer2Adapter(BaseModelAdapter):
             compute_metrics=self._compute_metrics,
             callbacks=callbacks,
         )
+        # T5 accepts **kwargs but computes an already-averaged CE loss and
+        # ignores num_items_in_batch. Otherwise Trainer skips division by GA
+        # and may also multiply the loss by n_gpu on DataParallel runs.
+        trainer.model_accepts_loss_kwargs = False
         trainer.remove_callback(PrinterCallback)
         return trainer
 
@@ -349,6 +440,7 @@ class ViT5Layer2Adapter(BaseModelAdapter):
             resume = str(Path(str(value)).resolve())
         if resume is not None:
             self._check_saved_tokenizer(Path(resume))
+            self._check_resume_training_policy(Path(resume))
         self.trainer.train(resume_from_checkpoint=resume)
 
     def predict(self, examples: Sequence[Example]) -> list[Layer2Prediction]:
@@ -377,6 +469,7 @@ class ViT5Layer2Adapter(BaseModelAdapter):
             "selection_metric": "macro_f1",
             "validation_mode": "free_generation_extraction",
             "tokenizer_policy": JSON_TOKENIZER_POLICY,
+            "training_policy": getattr(self.model.config, "layer2_training_policy", None),
             "iou_match_threshold": self.config.model.params.get("iou_match_threshold", 0.5),
         })
 
@@ -389,5 +482,6 @@ class ViT5Layer2Adapter(BaseModelAdapter):
             token=token,
         )
         self._check_saved_tokenizer(artifact_dir)
+        self._register_json_sentinels()
         self.model = AutoModelForSeq2SeqLM.from_pretrained(artifact_dir, token=token)
         self.trainer = None

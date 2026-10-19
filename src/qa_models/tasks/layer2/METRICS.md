@@ -118,15 +118,40 @@ Các vị trí code:
 ## ViT5: tokenizer JSON và bộ demo
 
 Tokenizer gốc của `VietAI/vit5-base` không biểu diễn đúng dấu `{`, `}` và một
-số ký tự của source. Adapter bổ sung chúng dưới dạng **token thường**, không
-phải special token bị xóa khi decode. Metaspace chỉ thêm khoảng trắng đầu
-toàn input, không thêm ở từng đoạn quanh added token; do đó JSON có escape
-hoặc dấu ngoặc bên trong string vẫn giữ nguyên nội dung.
+số ký tự của source. Adapter dùng codec khả nghịch cho ba ký tự JSON:
+`{` ↔ `<extra_id_0>`, `}` ↔ `<extra_id_1>`, `\` ↔ `<extra_id_2>`.
+Đây là các ID có sẵn đã được T5 pretrain, không tạo hàng embedding cú pháp
+ngẫu nhiên và không ghi đè embedding cũ. Codec dùng cho cả input lẫn target;
+validation/test vẫn generate tự do, không nhận gold hoặc prefix JSON ép sẵn.
 
-Ngoài JSON syntax và dải Unicode General Punctuation cố định, ký tự bổ sung
-chỉ lấy từ question/answer/context của **train**. Không tạo vocabulary từ
+Khi decode, giữ ba sentinel trên để khôi phục ký tự JSON, bỏ pad/EOS và các
+special token còn lại. Literal như `<extra_id_0>` hoặc `<pad>` bên trong chuỗi
+được escape ở bước encode để không lẫn với cú pháp. Metaspace chỉ thêm khoảng
+trắng đầu toàn input, không thêm ở từng đoạn quanh sentinel/added token. Codec
+không thêm ngoặc đóng bị thiếu, không sửa schema hoặc nội dung model đã sinh.
+Ví dụ model sinh thiếu dấu `}` thì output sau decode vẫn sai và nhận parse error.
+
+Ký tự ngoài cú pháp JSON chỉ lấy từ question/answer/context của **train** để
+bổ sung vocabulary khi cần. Không thêm cả dải Unicode
+General Punctuation: các space/control token không có trong train có thể
+chiếm ưu thế trong generation khi chưa được học. Không tạo vocabulary từ
 dev/test hoặc gold của chúng. Embedding được mở rộng khi cần, giữ nguyên ID
 token cũ. Tokenizer đã mở rộng được lưu cùng checkpoint/artifact.
+
+Embedding của các ký tự source bổ sung được resize bằng `mean_resizing=False`,
+rồi khởi tạo từ embedding ký tự gần nghĩa, NFKC có sẵn hoặc UNK pretrained,
+không dùng một
+vector ngẫu nhiên có thể lấn át output. Nhiễu nhỏ tách các alias; không sửa
+embedding token cũ. Đây chỉ là khởi tạo trọng số, không ép prefix khi generate.
+
+T5 tính cross-entropy đã lấy trung bình và không dùng `num_items_in_batch`.
+Adapter đặt `trainer.model_accepts_loss_kwargs=False` để Trainer chia loss
+đúng theo gradient accumulation và không nhân thêm số GPU do nhận nhầm
+`**kwargs` của T5. Không thay loss thành metric hoặc thay đổi early stopping.
+
+Khi validation có parse error, log in tối đa ba `raw_output` lỗi (giới hạn
+500 ký tự/mẫu) để phân biệt output lặp token với lỗi JSON khác. Parser vẫn
+giữ nguyên, không tự sửa JSON hoặc biến output lỗi thành dự đoán đúng.
 
 Trước khi train, target của train/dev phải encode rồi decode về cùng JSON
 payload (chấp nhận NFC/NFD tương đương). Target vượt `max_target_length` hoặc
@@ -138,10 +163,29 @@ run cũ và không resume checkpoint lỗi. Checkpoint thiếu policy tokenizer 
 vocabulary khác bị từ chối khi load/resume. **ViT5 đã học target mất ngoặc cần
 train lại**, không thể chỉ sửa metric rồi chấm lại. Qwen/encoder không cần
 train lại vì lỗi tokenizer riêng của ViT5. Metric early stopping vẫn giữ nguyên.
+Checkpoint dùng JSON literal cũ không tương thích với codec sentinel và sẽ
+bị từ chối thay vì decode hoặc resume nhầm. Giữ checkpoint cũ nếu cần phân
+tích bằng phiên bản code đã tạo ra nó. Run mới lưu `layer2_training_policy`
+trong config model và policy codec trong tokenizer để kiểm tra.
+Sửa vocabulary/khởi tạo/loss không bảo đảm F1 > 0 ngay epoch đầu; cần xem generated output
+và đường cong dev của run mới. Test CPU mô hình nhỏ chỉ kiểm chứng đường code,
+không thay thế training/evaluation ViT5 đầy đủ trên GPU.
 
 Bộ `qa_models/data/demo_20_4_4` giữ nguyên 20/4/4 record từ train/dev/test gốc,
 đủ bốn nhãn và có manifest truy xuất nguồn. Tự chỉnh đường dẫn data và output
 trong config model khi chạy demo; không dùng điểm trên 4 test samples để kết luận chất lượng.
+Với demo nhỏ, đặt `warmup_steps=0`, `early_stopping_patience=0` để không dừng
+khi model còn học cú pháp. Có thể đặt `training.params.load_best_model_at_end=false`
+để kiểm tra model cuối run: nếu mọi epoch có F1=0, best-checkpoint mặc định vẫn
+là epoch đầu, dù model cuối đã tiến bộ về cú pháp. Mặc định tham số này vẫn là
+true cho thí nghiệm đầy đủ; không thay metric `macro_f1` hoặc cách tính điểm.
+
+Kiểm tra CPU bằng ViT5-base thật trên 20 mẫu, 100 update, LR tuyến tính từ
+5e-5 về 0 (không early stop, không train trên dev): 2/4 output dev có JSON hợp
+lệ, span/evidence F1 vẫn bằng 0. Kết quả này chỉ chứng minh pipeline đã có thể
+học/sinh định dạng; không chứng minh model đã trích xuất đúng hoặc lỗi sinh
+đã được loại bỏ hoàn toàn. Không lấy unit test hoặc loss giảm để cam kết F1
+trên bộ lớn. Cần huấn luyện và đánh giá đầy đủ cho kết luận chất lượng.
 
 Faithfulness và Post-repair Verification Rate thuộc bước kiểm chứng/sửa chữa,
 không được tính bằng các metric extraction trong file này.
