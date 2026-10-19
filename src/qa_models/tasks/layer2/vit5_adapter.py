@@ -10,6 +10,7 @@ from typing import Sequence
 
 import numpy as np
 from datasets import Dataset
+from tokenizers import AddedToken, decoders, pre_tokenizers
 from transformers import (
     AutoModelForSeq2SeqLM,
     DataCollatorForSeq2Seq,
@@ -27,11 +28,13 @@ from qa_models.src.records import Example
 from qa_models.tasks.layer1.progress import EpochProgressCallback
 from qa_models.tasks.layer2.generative_adapter import GenerativeLayer2Adapter
 from qa_models.tasks.layer2.records import Layer2Prediction
+from qa_models.tasks.layer2.text_offsets import nfc
 from qa_models.tasks.layer2.validation import extraction_validation_metrics
 from qa_models.utils.io import write_json
 
 
 LOGGER = logging.getLogger("qa_models.layer2.vit5")
+JSON_TOKENIZER_POLICY = "vit5-layer2-lossless-json-v1"
 
 
 class ViT5Layer2Adapter(BaseModelAdapter):
@@ -62,10 +65,93 @@ class ViT5Layer2Adapter(BaseModelAdapter):
             self.config.model.checkpoint,
             token=token,
         )
+        self._configure_json_tokenizer()
         self.model = AutoModelForSeq2SeqLM.from_pretrained(
             self.config.model.checkpoint,
             token=token,
         )
+        self._resize_token_embeddings()
+
+    def _configure_json_tokenizer(self) -> None:
+        """Keep JSON syntax and avoid synthetic spaces around added tokens."""
+        if self.tokenizer is None:
+            raise RuntimeError("Tokenizer has not been loaded")
+        # The legacy tokenizer adds a dummy space to EVERY chunk separated by
+        # an added token. That corrupts escaped quotes and braces in strings.
+        # Only prepend at the beginning of the full input, not each chunk.
+        self.tokenizer.backend_tokenizer.pre_tokenizer = pre_tokenizers.Metaspace(
+            replacement="▁", prepend_scheme="first"
+        )
+        self.tokenizer.backend_tokenizer.decoder = decoders.Metaspace(
+            replacement="▁", prepend_scheme="first"
+        )
+        self.tokenizer.add_tokens([
+            AddedToken(character, normalized=False, special=False)
+            for character in ("{", "}", "\\")
+        ])
+        # Fixed Unicode General Punctuation coverage (including curly quotes,
+        # ellipsis and bidi controls). This is protocol-level coverage, not a
+        # vocabulary inferred from validation/test examples.
+        self._add_lossless_characters([chr(code) for code in range(0x2000, 0x2070)])
+        self.tokenizer.init_kwargs["layer2_json_tokenizer_policy"] = JSON_TOKENIZER_POLICY
+
+    def _add_lossless_characters(self, characters: Sequence[str]) -> int:
+        if self.tokenizer is None:
+            raise RuntimeError("Tokenizer has not been loaded")
+        if not characters:
+            return 0
+        encoded = self.tokenizer(list(characters), add_special_tokens=False)["input_ids"]
+        decoded = self.tokenizer.batch_decode(
+            encoded, skip_special_tokens=True, clean_up_tokenization_spaces=False
+        )
+        return self.tokenizer.add_tokens([
+            AddedToken(character, normalized=False, special=False)
+            for character, value in zip(characters, decoded, strict=True)
+            if character != value
+        ])
+
+    def _resize_token_embeddings(self) -> None:
+        if self.model is None or self.tokenizer is None:
+            raise RuntimeError("Model and tokenizer must be loaded first")
+        current_size = self.model.get_input_embeddings().num_embeddings
+        # Some T5 checkpoints have unused padded vocabulary rows; keep them.
+        if len(self.tokenizer) > current_size:
+            self.model.resize_token_embeddings(len(self.tokenizer))
+
+    def _add_training_characters(self, examples: Sequence[Example]) -> None:
+        """Extend only from training inputs, never dev/test text or labels.
+
+        Besides braces, the original vocabulary loses curly quotes, dashes,
+        mathematical symbols, etc. Non-normalized ordinary tokens preserve
+        such characters instead of supervising <unk> or an altered string.
+        """
+        if self.tokenizer is None:
+            raise RuntimeError("Tokenizer has not been loaded")
+        characters = sorted({
+            character
+            for example in examples
+            for text in (example.question, example.answer, example.context)
+            for character in nfc(text)
+            if character != " "
+        })
+        added = self._add_lossless_characters(characters)
+        self._resize_token_embeddings()
+        LOGGER.info("ViT5 JSON tokenizer: added %d training-input characters", added)
+
+    def _check_saved_tokenizer(self, directory: Path) -> None:
+        """Reject legacy or incompatible checkpoints before restoring weights."""
+        if self.tokenizer is None:
+            raise RuntimeError("Tokenizer has not been loaded")
+        saved = PreTrainedTokenizerFast.from_pretrained(directory, local_files_only=True)
+        if (
+            saved.init_kwargs.get("layer2_json_tokenizer_policy") != JSON_TOKENIZER_POLICY
+            or saved.get_vocab() != self.tokenizer.get_vocab()
+        ):
+            raise ValueError(
+                f"Incompatible ViT5 JSON tokenizer in {directory}. Do not resume "
+                "a legacy run or a run with different training vocabulary. "
+                "Use a fresh training.output_dir and resume_from_checkpoint=false."
+            )
 
     @staticmethod
     def _source(example: Example) -> str:
@@ -100,12 +186,35 @@ class ViT5Layer2Adapter(BaseModelAdapter):
         rows = []
         labels = None
         if with_labels:
+            targets = [self._target(example) for example in examples]
+            # Never silently truncate a JSON label or train on a lossy target.
             labels = self.tokenizer(
-                text_target=[self._target(example) for example in examples],
-                truncation=True,
-                max_length=int(self.config.model.params.get("max_target_length", 256)),
+                text_target=targets,
+                truncation=False,
                 padding=False,
             )["input_ids"]
+            decoded = self.tokenizer.batch_decode(
+                labels, skip_special_tokens=True, clean_up_tokenization_spaces=False
+            )
+            limit = int(self.config.model.params.get("max_target_length", 256))
+            for example, target, ids, restored in zip(
+                examples, targets, labels, decoded, strict=True
+            ):
+                if len(ids) > limit:
+                    raise ValueError(
+                        f"{example.example_id}: ViT5 JSON target has {len(ids)} tokens, "
+                        f"exceeding max_target_length={limit}; increase the limit."
+                    )
+                try:
+                    matches = json.loads(nfc(restored)) == json.loads(nfc(target))
+                except ValueError:
+                    matches = False
+                if not matches:
+                    raise ValueError(
+                        f"{example.example_id}: ViT5 target does not survive tokenizer "
+                        "encode/decode unchanged. Check unsupported characters or "
+                        "tokenizer normalization before training."
+                    )
         for index, example in enumerate(examples):
             row = {
                 "example_id": example.example_id,
@@ -137,7 +246,8 @@ class ViT5Layer2Adapter(BaseModelAdapter):
             greater_is_better=None if inference else True,
             save_total_limit=int(params.get("save_total_limit", 2)),
             predict_with_generate=True,
-            generation_max_length=int(self.config.model.params.get("max_target_length", 256)),
+            # T5 generation also includes the decoder-start token.
+            generation_max_length=int(self.config.model.params.get("max_target_length", 256)) + 1,
             seed=training.seed,
             data_seed=training.seed,
             fp16=bool(params.get("fp16", False)),
@@ -187,7 +297,9 @@ class ViT5Layer2Adapter(BaseModelAdapter):
             np.int64,
             copy=False,
         )
-        return self.tokenizer.batch_decode(safe_ids, skip_special_tokens=True)
+        return self.tokenizer.batch_decode(
+            safe_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
+        )
 
     def _trainer(self, train=None, validation=None) -> Seq2SeqTrainer:
         if self.model is None or self.tokenizer is None:
@@ -223,6 +335,7 @@ class ViT5Layer2Adapter(BaseModelAdapter):
 
     def fit(self, train_examples, validation_examples) -> None:
         self._load_base()
+        self._add_training_characters(train_examples)
         self._metric_examples = list(validation_examples)
         train = self._dataset(train_examples, with_labels=True)
         validation = self._dataset(validation_examples, with_labels=True)
@@ -234,6 +347,8 @@ class ViT5Layer2Adapter(BaseModelAdapter):
             resume = get_last_checkpoint(str(checkpoint_dir)) if checkpoint_dir.exists() else None
         elif value not in (False, None, "", "false", "none"):
             resume = str(Path(str(value)).resolve())
+        if resume is not None:
+            self._check_saved_tokenizer(Path(resume))
         self.trainer.train(resume_from_checkpoint=resume)
 
     def predict(self, examples: Sequence[Example]) -> list[Layer2Prediction]:
@@ -261,6 +376,7 @@ class ViT5Layer2Adapter(BaseModelAdapter):
             "adapter": self.__class__.__name__,
             "selection_metric": "macro_f1",
             "validation_mode": "free_generation_extraction",
+            "tokenizer_policy": JSON_TOKENIZER_POLICY,
             "iou_match_threshold": self.config.model.params.get("iou_match_threshold", 0.5),
         })
 
@@ -272,5 +388,6 @@ class ViT5Layer2Adapter(BaseModelAdapter):
             artifact_dir,
             token=token,
         )
+        self._check_saved_tokenizer(artifact_dir)
         self.model = AutoModelForSeq2SeqLM.from_pretrained(artifact_dir, token=token)
         self.trainer = None

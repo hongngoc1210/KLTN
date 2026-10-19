@@ -115,5 +115,33 @@ Các vị trí code:
   lại nếu còn đúng source data. Encoder output cũ chỉ có chuỗi đã mất offset
   thì cần chạy inference lại từ checkpoint.
 
+## ViT5: tokenizer JSON và bộ demo
+
+Tokenizer gốc của `VietAI/vit5-base` không biểu diễn đúng dấu `{`, `}` và một
+số ký tự của source. Adapter bổ sung chúng dưới dạng **token thường**, không
+phải special token bị xóa khi decode. Metaspace chỉ thêm khoảng trắng đầu
+toàn input, không thêm ở từng đoạn quanh added token; do đó JSON có escape
+hoặc dấu ngoặc bên trong string vẫn giữ nguyên nội dung.
+
+Ngoài JSON syntax và dải Unicode General Punctuation cố định, ký tự bổ sung
+chỉ lấy từ question/answer/context của **train**. Không tạo vocabulary từ
+dev/test hoặc gold của chúng. Embedding được mở rộng khi cần, giữ nguyên ID
+token cũ. Tokenizer đã mở rộng được lưu cùng checkpoint/artifact.
+
+Trước khi train, target của train/dev phải encode rồi decode về cùng JSON
+payload (chấp nhận NFC/NFD tương đương). Target vượt `max_target_length` hoặc
+bị đổi/mất ký tự sẽ báo lỗi, không bị cắt cụt âm thầm. `max_target_length` bao
+gồm EOS; generation chừa thêm một vị trí decoder-start của T5.
+
+Khi chạy lại ViT5, tự đặt `training.output_dir` mới trong config để tách khỏi
+run cũ và không resume checkpoint lỗi. Checkpoint thiếu policy tokenizer mới hoặc có
+vocabulary khác bị từ chối khi load/resume. **ViT5 đã học target mất ngoặc cần
+train lại**, không thể chỉ sửa metric rồi chấm lại. Qwen/encoder không cần
+train lại vì lỗi tokenizer riêng của ViT5. Metric early stopping vẫn giữ nguyên.
+
+Bộ `qa_models/data/demo_20_4_4` giữ nguyên 20/4/4 record từ train/dev/test gốc,
+đủ bốn nhãn và có manifest truy xuất nguồn. Tự chỉnh đường dẫn data và output
+trong config model khi chạy demo; không dùng điểm trên 4 test samples để kết luận chất lượng.
+
 Faithfulness và Post-repair Verification Rate thuộc bước kiểm chứng/sửa chữa,
 không được tính bằng các metric extraction trong file này.
