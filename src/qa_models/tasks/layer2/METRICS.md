@@ -31,6 +31,8 @@ question, answer và context gốc; không sử dụng prediction Layer 1.
 | Trường | Định nghĩa |
 |---|---|
 | `exact_match` | Tỷ lệ sample có tập offset prediction bằng toàn bộ tập offset gold, không có prediction ungrounded và không parse error. Hai tập rỗng hợp lệ được điểm 1. |
+| `positive_exact_match` | Cùng định nghĩa EM, nhưng chỉ lấy sample có gold không rỗng của trường đang xét: `span` có gold span, `evidence` có gold evidence. Phải đúng toàn bộ tập offset, không chỉ đúng một phần. Prediction rỗng/sai hoặc parse error trên các sample này vẫn nằm trong mẫu số và được 0. Không có sample positive thì trả 0. |
+| `positive_exact_match_count`, `positive_sample_count` | Tử số và mẫu số của positive EM: số sample positive đúng hoàn toàn và tổng số sample có gold của trường đó. Sample có span nhưng evidence=null được tính cho span positive EM, không được tính cho evidence positive EM. |
 | `precision`, `recall`, `f1` | P/R/F1 micro trên tất cả đơn vị trích xuất: P=TP/predicted_count, R=TP/gold_count. Ghép một-một tối đa số cặp với IoU ≥ ngưỡng (mặc định 0,5). |
 | `mean_matched_iou` | IoU trung bình chỉ trên các cặp đã match. Chỉ số có điều kiện, không phải IoU của toàn test. Khi có nhiều cách ghép tối đa, ưu tiên cạnh IoU cao theo thứ tự xác định, không tối ưu tổng IoU. |
 | `mean_sample_char_iou` | Trung bình sample IoU giữa hợp các vị trí ký tự prediction và gold. Rỗng–rỗng hợp lệ = 1; parse error = 0. |
@@ -78,6 +80,10 @@ Config mặc định evaluate mỗi epoch, patience=2,
 early_stopping_threshold=0,0001, greater_is_better=true. `macro_char_f1`, loss,
 EM và IoU trung bình không phải monitor. Qwen generation validation sẽ chậm
 hơn teacher forcing. Tqdm evaluation đếm batch đã hoàn tất generate.
+Positive EM được log thêm dưới tên `eval_span_positive_exact_match` và
+`eval_evidence_positive_exact_match`; không thay đổi monitor `eval_macro_f1`.
+Chỉ bổ sung chỉ số báo cáo này không cần train lại; có thể chấm lại prediction
+còn đủ offset/source hoặc chạy evaluation từ checkpoint đã lưu.
 
 Các vị trí code:
 

@@ -163,7 +163,7 @@ def _group_metrics(
         invalid_predictions = [False] * len(texts)
 
     true_positive = predicted_count = gold_count = 0
-    exact_samples = 0
+    exact_samples = positive_exact_samples = 0
     ungrounded_count = 0
     matched_ious: list[float] = []
     sample_char_ious: list[float] = []
@@ -211,6 +211,8 @@ def _group_metrics(
             and set(predicted_intervals) == set(gold_intervals)
         )
         exact_samples += exact
+        if gold_intervals:
+            positive_exact_samples += exact
         if exact_results is not None:
             exact_results.append(exact)
         matches = (
@@ -260,6 +262,11 @@ def _group_metrics(
     size = len(texts)
     return {
         "exact_match": exact_samples / size if size else 0.0,
+        "positive_exact_match": (
+            positive_exact_samples / len(positive_sample_char_ious)
+            if positive_sample_char_ious else 0.0
+        ),
+        "positive_exact_match_count": positive_exact_samples,
         "precision": precision,
         "recall": recall,
         "f1": f1,

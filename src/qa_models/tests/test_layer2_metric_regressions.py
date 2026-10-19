@@ -142,6 +142,71 @@ class Layer2MetricRegressionTests(unittest.TestCase):
         self.assertEqual(metrics["span"]["mean_sample_char_iou"], 0.5)
         self.assertEqual(metrics["span"]["mean_positive_sample_char_iou"], 0.0)
 
+    def test_positive_em_uses_each_fields_gold_not_predictions(self):
+        supported = example()
+        unsupported = replace(supported, example_id="no-evidence", metadata={
+            "span_label": [{"span": "Huế", "evidence": None}],
+        })
+        clean = replace(supported, example_id="clean", metadata={"span_label": []})
+        metrics = layer2_metrics([supported, unsupported, clean], [
+            Layer2Prediction(supported.example_id, ("Huế",), ("Hà Nội",)),
+            Layer2Prediction(unsupported.example_id, (), ()),
+            # A false positive on empty gold is excluded only from positive EM.
+            Layer2Prediction(clean.example_id, ("Huế",), ("Hà Nội",)),
+        ])
+        self.assertEqual(metrics["span"]["positive_sample_count"], 2)
+        self.assertEqual(metrics["span"]["positive_exact_match_count"], 1)
+        self.assertEqual(metrics["span"]["positive_exact_match"], 0.5)
+        self.assertEqual(metrics["span"]["exact_match"], 1 / 3)
+        self.assertEqual(metrics["evidence"]["positive_sample_count"], 1)
+        self.assertEqual(metrics["evidence"]["positive_exact_match_count"], 1)
+        self.assertEqual(metrics["evidence"]["positive_exact_match"], 1.0)
+        self.assertEqual(metrics["evidence"]["exact_match"], 2 / 3)
+        self.assertEqual(metrics["evidence_at_iou_0_3"]["positive_exact_match"], 1.0)
+
+    def test_positive_em_reuses_strict_offset_and_parse_rules(self):
+        x = example()
+        predictions = [
+            Layer2Prediction(x.example_id, (), ()),
+            Layer2Prediction(x.example_id, ("Huế",), ("Hà Nội",), parse_error=True),
+            Layer2Prediction(x.example_id, ("Huế",), (), span_offsets=((7, 10),)),
+            Layer2Prediction(x.example_id, ("Huế", "Paris"), ("Hà Nội", "Paris")),
+        ]
+        for prediction in predictions:
+            with self.subTest(prediction=prediction):
+                metrics = layer2_metrics([x], [prediction])
+                for group in ("span", "evidence"):
+                    self.assertEqual(metrics[group]["positive_sample_count"], 1)
+                    self.assertEqual(metrics[group]["positive_exact_match_count"], 0)
+                    self.assertEqual(metrics[group]["positive_exact_match"], 0.0)
+
+    def test_positive_em_requires_all_gold_offsets(self):
+        x = replace(example(), metadata={"span_label": [
+            {"span": "Huế", "span_offset": [0, 3], "evidence": "Hà Nội"},
+            {"span": "Huế", "span_offset": [7, 10], "evidence": "đúng"},
+        ]})
+        metrics = layer2_metrics([x], [
+            Layer2Prediction(x.example_id, ("Huế",), ("Hà Nội",)),
+        ])
+        for group in ("span", "evidence"):
+            self.assertEqual(metrics[group]["positive_sample_count"], 1)
+            self.assertEqual(metrics[group]["positive_exact_match"], 0.0)
+            self.assertGreater(metrics[group]["f1"], 0.0)
+
+    def test_positive_em_has_zero_denominator_for_empty_gold(self):
+        clean = replace(example(), metadata={"span_label": []})
+        for examples, predictions in (
+            ([], []),
+            ([clean], [Layer2Prediction(clean.example_id, (), ())]),
+        ):
+            with self.subTest(size=len(examples)):
+                metrics = layer2_metrics(examples, predictions)
+                for group in ("span", "evidence"):
+                    self.assertEqual(metrics[group]["positive_sample_count"], 0)
+                    self.assertEqual(metrics[group]["positive_exact_match_count"], 0)
+                    self.assertEqual(metrics[group]["positive_exact_match"], 0.0)
+        self.assertEqual(metrics["span"]["exact_match"], 1.0)
+
     def test_invalid_offset_cannot_receive_em(self):
         x = example()
         p = Layer2Prediction(x.example_id, ("Huế",), (), span_offsets=((99, 102),))

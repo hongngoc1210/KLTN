@@ -23,7 +23,9 @@ def extraction_validation_metrics(
     flattened: dict[str, float] = {}
     for group in ("span", "evidence"):
         values = metrics[group]
-        for name in ("exact_match", "precision", "recall", "f1", "char_f1"):
+        for name in (
+            "exact_match", "positive_exact_match", "precision", "recall", "f1", "char_f1"
+        ):
             flattened[f"{group}_{name}"] = float(values[name])
         flattened[f"{group}_mean_iou"] = float(values["mean_matched_iou"])
     for name in ("macro_f1", "macro_char_f1", "joint_exact_match", "parse_error_rate"):

@@ -57,6 +57,8 @@ class UnifiedValidationTests(unittest.TestCase):
         ))
         self.assertEqual(metrics["token_macro_f1"], 1.0)
         self.assertAlmostEqual(metrics["macro_f1"], 5 / 6)
+        self.assertEqual(metrics["span_positive_exact_match"], 0.0)
+        self.assertEqual(metrics["evidence_positive_exact_match"], 1.0)
         decoded = adapter._decode_predictions((sample(),), tokenized(), np.array([[1, 1, 3]]))
         expected = extraction_validation_metrics((sample(),), decoded, adapter.config.model.params)
         self.assertEqual(metrics["macro_f1"], expected["macro_f1"])
