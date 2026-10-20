@@ -42,6 +42,19 @@ VIT5_TRAINING_POLICY = "sentinel_json_source_only_and_mean_loss"
 JSON_SENTINELS = {"{": "<extra_id_0>", "}": "<extra_id_1>", "\\": "<extra_id_2>"}
 
 
+class ViT5Seq2SeqCollator(DataCollatorForSeq2Seq):
+    """Keep unlabelled prediction batches genuinely label-free."""
+
+    def __call__(self, features, return_tensors=None):
+        batch = super().__call__(features, return_tensors=return_tensors)
+        # Some Transformers versions insert labels=None. Seq2SeqTrainer tests
+        # key presence and then attempts a T5 loss forward without decoder IDs.
+        # Preserve real train/dev labels and their shifted decoder inputs.
+        if batch.get("labels") is None:
+            batch.pop("labels", None)
+        return batch
+
+
 class ViT5Layer2Adapter(BaseModelAdapter):
     def __init__(self, config) -> None:
         super().__init__(config)
@@ -413,7 +426,7 @@ class ViT5Layer2Adapter(BaseModelAdapter):
             train_dataset=train,
             eval_dataset=validation,
             processing_class=self.tokenizer,
-            data_collator=DataCollatorForSeq2Seq(self.tokenizer, model=self.model),
+            data_collator=ViT5Seq2SeqCollator(self.tokenizer, model=self.model),
             compute_metrics=self._compute_metrics,
             callbacks=callbacks,
         )

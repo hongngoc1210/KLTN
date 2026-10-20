@@ -9,7 +9,7 @@ from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import numpy as np
 import torch
@@ -250,6 +250,68 @@ class ViT5JSONTokenizerTests(unittest.TestCase):
         arguments = model._args(inference=False)
         self.assertFalse(arguments.load_best_model_at_end)
         self.assertEqual(arguments.metric_for_best_model, "macro_f1")
+
+    def test_unlabelled_collation_omits_labels_but_keeps_training_labels(self):
+        model = adapter()
+        model._configure_json_tokenizer()
+        x = replace(sample(), answer="Huế", metadata={"span_label": []})
+        with TemporaryDirectory() as temporary:
+            model.config = replace(model.config, training=replace(
+                model.config.training, output_dir=Path(temporary),
+            ))
+            trainer = model._trainer()
+            for with_labels in (False, True):
+                dataset = model._dataset([x], with_labels=with_labels)
+                batch = trainer.data_collator([{
+                    key: value for key, value in dataset[0].items()
+                    if key != "example_id"
+                }])
+                if with_labels:
+                    self.assertIsInstance(batch["labels"], torch.Tensor)
+                    self.assertIsInstance(batch["decoder_input_ids"], torch.Tensor)
+                    self.assertTrue(torch.isfinite(model.model(**batch).loss))
+                else:
+                    self.assertNotIn("labels", batch)
+                    self.assertNotIn("decoder_input_ids", batch)
+
+    def test_predict_without_gold_after_training_and_after_artifact_reload(self):
+        threads = torch.get_num_threads()
+        try:
+            torch.set_num_threads(1)
+            with TemporaryDirectory() as temporary:
+                model = adapter()
+                model._configure_json_tokenizer()
+                x = replace(sample(), answer="Huế", metadata={"span_label": []})
+                model.config = replace(
+                    model.config,
+                    training=replace(model.config.training, output_dir=Path(temporary)),
+                    model=replace(model.config.model, params={
+                        **model.config.model.params, "max_target_length": 24,
+                    }),
+                )
+                validation = model._dataset([x], with_labels=True)
+                # stage=all reuses the trainer and its dev metric context.
+                model._metric_examples = [x]
+                model.trainer = model._trainer(validation, validation)
+                artifact_dir = Path(temporary) / "artifacts"
+                model.save(artifact_dir)
+                restored = ViT5Layer2Adapter(model.config)
+                restored.load(artifact_dir)
+                test_examples = [replace(x, example_id=f"test-{index}")
+                                 for index in range(2)]
+                for name, candidate in (("after_training", model), ("reloaded", restored)):
+                    with self.subTest(mode=name):
+                        with patch.object(candidate.model, "generate",
+                                          wraps=candidate.model.generate) as generate:
+                            predictions = candidate.predict(test_examples)
+                        self.assertEqual([item.example_id for item in predictions],
+                                         [item.example_id for item in test_examples])
+                        self.assertTrue(generate.called)
+                        for call in generate.call_args_list:
+                            self.assertNotIn("labels", call.kwargs)
+                            self.assertNotIn("decoder_input_ids", call.kwargs)
+        finally:
+            torch.set_num_threads(threads)
 
     def test_parse_errors_log_raw_outputs_without_relaxing_metrics(self):
         model = adapter()
