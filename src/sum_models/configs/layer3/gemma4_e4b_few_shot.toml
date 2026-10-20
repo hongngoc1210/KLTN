@@ -1,0 +1,64 @@
+[data]
+train_path = "sum_models/data/train.json"
+validation_path = "sum_models/data/dev.json"
+test_path = "sum_models/data/test.json"
+id_field = "id"
+context_field = "context"
+question_field = "question"
+answer_field = "response"
+label_field = "label"
+
+[model]
+name = "gemma4_e4b_few_shot_layer3"
+checkpoint = "google/gemma-4-E4B-it"
+adapter = "sum_models.models.generative:GenerativeRuntime"
+family = "gemma"
+method = "few_shot"
+
+[model.params]
+revision = "main"
+overlap = 0.25
+question_tokens = 64
+answer_window_tokens = 128
+attention = "sdpa"
+quantize_4bit = true
+lora_r = 16
+lora_alpha = 32
+lora_dropout = 0.05
+max_new_tokens = 192
+inference_max_length = 8192
+few_shot = 4
+diagnosis_threshold = 0.5
+task = "layer3"
+model_key = "gemma"
+vncorenlp_dir = "sum_models/resources/vncorenlp"
+
+[training]
+enabled = false
+seed = 42
+epochs = 5
+learning_rate = 2e-05
+train_batch_size = 1
+eval_batch_size = 1
+gradient_accumulation_steps = 16
+max_length = 8192
+output_dir = "sum_models/outputs/layer3/gemma4_e4b_few_shot"
+
+[training.params]
+weight_decay = 0.01
+warmup_ratio = 0.06
+max_grad_norm = 1.0
+checkpoint_steps = 100
+early_stopping_patience = 2
+early_stopping_threshold = 0.0
+resume_from_checkpoint = "auto"
+gradient_checkpointing = true
+precision = "auto"
+device = "cuda"
+require_smoke = true
+bootstrap_iterations = 1000
+
+[evaluation]
+split = "validation"
+batch_size = 1
+save_predictions = true

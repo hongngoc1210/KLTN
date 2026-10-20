@@ -1,0 +1,7 @@
+-r requirements-cpu.txt
+torch>=2.6,<3
+transformers==4.57.1
+accelerate>=1.10,<2
+sentencepiece>=0.2
+protobuf>=4
+py-vncorenlp>=0.1.4

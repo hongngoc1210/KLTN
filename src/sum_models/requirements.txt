@@ -1,0 +1,2 @@
+# Default environment: layer-1/2/3 encoders and ViT5.
+-r requirements-encoders.txt
