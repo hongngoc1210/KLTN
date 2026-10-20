@@ -187,9 +187,9 @@ class Layer3DataAndMetricTests(unittest.TestCase):
 
 
 class Layer3AdapterTests(unittest.TestCase):
-    def test_all_ten_configs_load_with_separate_outputs_and_correct_heads(self):
+    def test_all_nine_configs_load_with_separate_outputs_and_correct_heads(self):
         paths = sorted((ROOT / "configs/layer3").glob("*.toml"))
-        self.assertEqual(len(paths), 10)
+        self.assertEqual(len(paths), 9)
         outputs = set()
         for path in paths:
             cfg = load_config(path)
@@ -202,7 +202,7 @@ class Layer3AdapterTests(unittest.TestCase):
                 args = instance._training_arguments(10) if cfg.model.method == "qlora" else instance._create_training_arguments()
                 self.assertEqual(args.metric_for_best_model, "macro_f1")
                 self.assertTrue(args.greater_is_better)
-        self.assertEqual(len(outputs), 10)
+        self.assertEqual(len(outputs), 9)
         self.assertTrue(issubclass(PhoBERTLayer3Adapter, EncoderLayer3Adapter))
 
     def test_span_markers_survive_long_answer_and_context(self):

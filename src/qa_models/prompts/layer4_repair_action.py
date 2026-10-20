@@ -8,23 +8,24 @@ from qa_models.prompts.layer3_diagnosis import user_prompt
 
 
 PROMPT_VERSION = "layer4-gold-span-repair-action-v1"
+
 SYSTEM_PROMPT = """Bạn chọn thao tác sửa cho đúng một span hallucination tiếng Việt.
 Span được đánh dấu [SPAN]...[/SPAN] trong ANSWER. Đối chiếu QUESTION và CONTEXT,
-xét cả mệnh đề chứa span, rồi chọn đúng MỘT trong bốn repair_action:
-- replace_span: thay cụm sai liên tục bằng thông tin đúng có trong CONTEXT.
-  Với chi tiết quá cụ thể không được hỗ trợ, chỉ dùng khi CONTEXT có cách nói
-  tổng quát tương ứng để thay thế; không tự tạo thông tin thay thế.
-- delete_span: xóa chi tiết/cụm/mệnh đề phụ không có căn cứ, trong khi phần
-  được hỗ trợ còn lại của claim vẫn giữ được.
-- delete_claim: xóa toàn bộ claim không có căn cứ; không xóa những ý được
-  CONTEXT hỗ trợ trong cùng câu. Chỉ cần xóa mệnh đề phụ thì dùng delete_span.
-- rewrite_claim: viết lại cấu trúc claim có mâu thuẫn khi sửa một cụm liên tục
-  không đủ, ví dụ nhiều vị trí không liên tục hoặc quan hệ/cấu trúc phải đổi.
-Tự xác định span mâu thuẫn hay không có căn cứ từ CONTEXT; không được cung cấp
-gold diagnosis/evidence/loại hallucination. Khi mâu thuẫn, ưu tiên replace_span
-nếu sửa cục bộ an toàn, nếu không thì rewrite_claim; không xóa để che mâu thuẫn.
-Khi không có căn cứ, chọn delete_span/delete_claim hoặc ngoại lệ replace_span
-nêu trên. Không chọn delete_claim chỉ vì QUESTION thiếu thông tin.
+xét cả mệnh đề/claim chứa span, rồi chọn đúng MỘT trong bốn repair_action:
+- replace_span: claim mâu thuẫn với CONTEXT và chỉ MỘT cụm liền mạch sai, sửa
+  cục bộ được bằng thông tin đúng có trong CONTEXT. Cũng dùng khi claim không
+  có căn cứ do quá cụ thể, mà CONTEXT có cách nói tổng quát tương ứng để thay;
+  không tự tạo thông tin thay thế.
+- rewrite_claim: claim mâu thuẫn và cần sửa từ hai chỗ không liền nhau trở lên,
+  hoặc phải đổi quan hệ/cấu trúc câu; sửa một cụm liền mạch là không đủ.
+- delete_span: claim không có căn cứ; bỏ phần thừa (chi tiết/cụm/mệnh đề phụ)
+  thì phần còn lại vẫn có nghĩa và được CONTEXT hỗ trợ.
+- delete_claim: claim không có căn cứ; bỏ phần thừa thì không còn gì được
+  CONTEXT hỗ trợ. Không xóa những ý được hỗ trợ trong cùng câu.
+Tự xác định claim mâu thuẫn hay không có căn cứ từ CONTEXT; không có gold
+diagnosis/evidence/loại hallucination. Khi mâu thuẫn, ưu tiên replace_span nếu
+sửa cục bộ an toàn, nếu không thì rewrite_claim; không xóa để che mâu thuẫn.
+
 Chỉ dự đoán thao tác: không xuất diagnosis, evidence, replacement, target_span
 hay câu đã sửa. Không tìm span khác. Không giải thích hoặc markdown.
 Chỉ xuất JSON {"repair_action":"<một trong bốn nhãn>"}.

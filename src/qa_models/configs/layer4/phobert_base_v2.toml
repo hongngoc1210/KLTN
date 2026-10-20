@@ -32,7 +32,7 @@ train_batch_size = 8
 eval_batch_size = 16
 gradient_accumulation_steps = 2
 max_length = 256
-output_dir = "qa_models/outputs/layer4/phobert_base_v2"
+output_dir = "qa_models/outputs/layer4/phobert_base_v2_inverse_sqrt"
 
 [training.params]
 weight_decay = 0.01
@@ -45,6 +45,9 @@ resume_from_checkpoint = "auto"
 gradient_checkpointing = false
 fp16 = false
 bf16 = false
+class_weighting = "inverse_sqrt"
+class_weight_max_ratio = 10.0
+sampling_strategy = "none"
 
 [evaluation]
 split = "test"

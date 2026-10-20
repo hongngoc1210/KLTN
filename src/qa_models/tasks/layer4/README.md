@@ -64,6 +64,7 @@ python qa_models/main.py \
   --config-file qa_models/configs/layer4/qwen35_4b_qlora.toml --stage all
 
 python -m unittest qa_models.tests.test_layer4 -v
+python -m unittest qa_models.tests.test_layer4_imbalance -v
 ```
 
 Tự chỉnh paths/hyperparameters trong config. Output riêng:
@@ -98,6 +99,41 @@ Do dev không có rewrite_claim, perfect trên ba lớp có mặt cho Macro-F1 c
 4 lớp = **0.75**, không phải 1.0. Không đổi taxonomy hoặc đưa test vào train
 để tăng điểm. Hai lớp phổ biến áp đảo nên phải xem per-class F1/support,
 không kết luận chỉ từ accuracy.
+
+Các config encoder của protocol cuối sử dụng cross-entropy có trọng số lớp
+`inverse_sqrt`, với `class_weight_max_ratio = 10.0` và không weighted sampling.
+Trọng số chỉ được tính từ nhãn train, được chuẩn hóa có kỳ vọng bằng 1 và không
+thay đổi phân bố dev/test. Cơ chế này được kế thừa từ trainer Layer 3 nhưng dùng
+taxonomy bốn action của Layer 4.
+
+Trong `[training.params]`, có thể bật/tắt cùng các tùy chọn như Layer 3:
+
+```toml
+class_weighting = "inverse_sqrt"
+class_weight_max_ratio = 10.0
+sampling_strategy = "none"
+```
+
+Hoặc dùng weighted sampling thay weighted loss:
+
+```toml
+class_weighting = "none"
+sampling_strategy = "inverse_sqrt"
+sampling_max_ratio = 10.0
+```
+
+Không bật hai cách cùng lúc. Đặt cả hai về `"none"` để chạy baseline không
+cân bằng (đây cũng là mặc định khi không khai báo). Weighted sampling lấy mẫu
+có hoàn lại, giữ số lượt lấy mẫu mỗi epoch bằng số train span. Dev/test và
+eval loss không reweight/resample; early stopping vẫn theo dev Macro-F1 4 lớp.
+QLoRA và zero/few-shot không dùng các tùy chọn này. Log có dòng
+`Repair-action imbalance handling:`; train counts/trọng số được lưu trong
+`artifacts/adapter_metadata.json` dưới khóa `imbalance`.
+
+Đổi `output_dir` khi bắt đầu thí nghiệm weighted từ baseline cũ; không resume
+checkpoint đã train bằng chế độ khác. Các config đã khai báo weighting nhưng
+chạy code cũ chặn imbalance ngoài Layer 3 vẫn là lượt train không weighted;
+cần train mới để đánh giá đúng chế độ weighted Layer 4.
 
 Chưa sinh replacement/target_span/repaired_answer nên không tính Faithfulness
 hay Post-repair Verification Rate. Kiểm thử model nhỏ chỉ xác minh code,

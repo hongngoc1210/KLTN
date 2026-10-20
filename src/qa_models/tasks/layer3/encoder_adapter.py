@@ -114,8 +114,8 @@ class EncoderLayer3Adapter(EncoderLayer1Adapter):
         return dataset  # Span-aware tokenization already happened per example.
 
     def _create_trainer(self, train_dataset=None, eval_dataset=None):
-        # Layer 4 inherits tokenization, but this feature is scoped to diagnosis.
-        if train_dataset is None or self.task_name != "layer3":
+        # Diagnosis and repair actions share the trainer, not their label counts.
+        if train_dataset is None or self.task_name not in ("layer3", "layer4"):
             return super()._create_trainer(train_dataset, eval_dataset)
         params = self.config.training.params
         loss_mode = str(params.get("class_weighting", "none"))
@@ -142,10 +142,11 @@ class EncoderLayer3Adapter(EncoderLayer1Adapter):
             "train_counts": dict(zip(self.labels, counts.tolist(), strict=True)),
             "class_weights": dict(zip(self.labels, weights.tolist(), strict=True)),
         }
-        LOGGER.info("Diagnosis imbalance handling: %s", self._imbalance_metadata)
+        task_display = "Diagnosis" if self.task_name == "layer3" else "Repair-action"
+        LOGGER.info("%s imbalance handling: %s", task_display, self._imbalance_metadata)
         rare = [label for label, count in zip(self.labels, counts.tolist(), strict=True) if count < 5]
         if rare:
-            LOGGER.warning("Diagnosis classes with <5 train spans: %s; reweighting cannot add diversity", rare)
+            LOGGER.warning("%s classes with <5 train spans: %s; reweighting cannot add diversity", task_display, rare)
         callbacks = [EpochProgressCallback()]
         patience = int(params.get("early_stopping_patience", 0))
         if patience > 0:

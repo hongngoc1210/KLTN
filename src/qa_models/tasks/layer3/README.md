@@ -20,7 +20,7 @@ Tất cả config ở `qa_models/configs/layer3/`, outputs ở
 |---|---|
 | `phobert_base_v2` | VnCoreNLP + marked-span sequence classification |
 | `xlmr_base`, `xlmr_large` | Marked-span sequence classification với context |
-| `mdeberta_v3_base`, `mmbert_base` | Marked-span sequence classification với context |
+| `mmbert_base` | Marked-span sequence classification với context |
 | `qwen35_4b_zero_shot`, `gemma4_e4b_zero_shot` | JSON diagnosis zero-shot |
 | `qwen35_4b_few_shot`, `gemma4_e4b_few_shot` | 1 demonstration train cho mỗi diagnosis (10 mẫu) |
 | `qwen35_4b_qlora` | Completion-only SFT bằng QLoRA; dev sinh tự do |
@@ -76,9 +76,10 @@ train. Dữ liệu demo 20/4/4 có thể không đủ 10 diagnosis cho few-shot.
 
 ## Giảm lệch nhãn khi fine-tune encoder
 
-PhoBERT, XLM-R base/large, mDeBERTa và mmBERT hỗ trợ hai lựa chọn **chỉ cho
-Layer 3 encoder**. Mặc định cả hai đều `"none"`, giữ baseline cũ. Không thay
-config tự động, không thay QLoRA, prompt hoặc Layer 4.
+PhoBERT, XLM-R base/large và mmBERT hỗ trợ cùng cơ chế giảm lệch nhãn cho
+encoder Layer 3 và Layer 4. Các config encoder dùng trong protocol cuối bật
+`inverse_sqrt`; implementation vẫn hỗ trợ `"none"` để chạy ablation. Cơ chế
+này không áp dụng cho prompt zero/few-shot.
 
 Thêm vào bảng `[training.params]` hiện có trong config để bật **weighted loss**:
 

@@ -169,8 +169,8 @@ class EncoderImbalanceTests(unittest.TestCase):
                     loss = trainer.compute_loss(GatheredModel(), {"labels": labels}, num_items_in_batch=count)
                     torch.testing.assert_close(loss, expected)
 
-    def test_config_modes_apply_to_all_five_encoders_without_changing_defaults(self):
-        for stem in ("phobert_base_v2", "xlmr_base", "xlmr_large", "mdeberta_v3_base", "mmbert_base"):
+    def test_config_modes_apply_to_all_four_encoders_without_changing_defaults(self):
+        for stem in ("phobert_base_v2", "xlmr_base", "xlmr_large", "mmbert_base"):
             with self.subTest(stem=stem), TemporaryDirectory() as temporary:
                 cls = PhoBERTLayer3Adapter if stem == "phobert_base_v2" else EncoderLayer3Adapter
                 adapter = cls(config(stem))
@@ -190,13 +190,16 @@ class EncoderImbalanceTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "must be one"):
                     adapter._create_trainer(dataset)
 
-    def test_layer4_does_not_opt_in_through_inheritance(self):
+    def test_layer4_uses_its_own_action_weights_through_inheritance(self):
         with TemporaryDirectory() as temporary:
             adapter = configure(action_encoder(), temporary, class_weighting="inverse_sqrt")
             dataset = adapter._prepare_dataset([action_span()])
-            self.assertNotIsInstance(
-                adapter._create_trainer(dataset, dataset), ImbalanceTrainer,
-            )
+            trainer = adapter._create_trainer(dataset, dataset)
+            self.assertIsInstance(trainer, ImbalanceTrainer)
+            self.assertEqual(trainer.class_loss_weights.shape, (4,))
+            self.assertEqual(adapter._imbalance_metadata["train_counts"], {
+                "replace_span": 1, "delete_span": 0, "delete_claim": 0, "rewrite_claim": 0,
+            })
 
     def test_train_eval_save_reload_for_both_modes(self):
         for setting in ("class_weighting", "sampling_strategy"):

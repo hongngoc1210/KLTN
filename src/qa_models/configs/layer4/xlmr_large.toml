@@ -31,7 +31,7 @@ train_batch_size = 2
 eval_batch_size = 4
 gradient_accumulation_steps = 8
 max_length = 512
-output_dir = "qa_models/outputs/layer4/xlmr_large"
+output_dir = "qa_models/outputs/layer4/xlmr_large_inverse_sqrt"
 
 [training.params]
 weight_decay = 0.01
@@ -44,6 +44,9 @@ resume_from_checkpoint = "auto"
 gradient_checkpointing = true
 fp16 = true
 bf16 = false
+class_weighting = "inverse_sqrt"
+class_weight_max_ratio = 10.0
+sampling_strategy = "none"
 
 [evaluation]
 split = "test"
