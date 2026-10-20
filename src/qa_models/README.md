@@ -1,7 +1,11 @@
-# Hệ thống đánh giá hallucination ba tầng
+# Hệ thống đánh giá hallucination bốn tầng
 
-Khung code hiện đã triển khai tầng 1 và chế độ đánh giá độc lập của tầng 2.
-Kiến trúc đích gồm ba tầng và hai chế độ đánh giá. Quyết định chia sẻ backbone,
+Khung code hiện đã triển khai tầng 1, đánh giá độc lập tầng 2 và diagnosis
+gold-span tầng 3. Cấu hình, metric và lệnh chạy tầng 3:
+[Layer 3 diagnosis](tasks/layer3/README.md).
+Layer 4 dự đoán repair action riêng trên gold span:
+[Layer 4 repair-action](tasks/layer4/README.md).
+Kiến trúc đích gồm bốn tầng và hai chế độ đánh giá. Quyết định chia sẻ backbone,
 tách task head và cách đánh giá end-to-end được mô tả trong
 [ARCHITECTURE.md](ARCHITECTURE.md).
 

@@ -1,0 +1,52 @@
+[data]
+train_path = "qa_models/data/train.json"
+validation_path = "qa_models/data/dev.json"
+test_path = "qa_models/data/test.json"
+id_field = "qa_id"
+context_field = "content"
+question_field = "question"
+answer_field = "answer"
+label_field = "label"
+
+[model]
+name = "xlmr_large_layer3_diagnosis"
+checkpoint = "FacebookAI/xlm-roberta-large"
+adapter = "qa_models.tasks.layer3.encoder_adapter:EncoderLayer3Adapter"
+family = "encoder_classifier"
+method = "finetune"
+
+[model.params]
+task = "layer3"
+trust_remote_code = false
+hf_token_env = "HF_TOKEN"
+require_hf_token = false
+use_fast = true
+
+[training]
+enabled = true
+seed = 42
+epochs = 10
+learning_rate = 0.00001
+train_batch_size = 2
+eval_batch_size = 4
+gradient_accumulation_steps = 8
+max_length = 512
+output_dir = "qa_models/outputs/layer3/xlmr_large"
+
+[training.params]
+weight_decay = 0.01
+warmup_steps = 150
+logging_steps = 50
+save_total_limit = 2
+early_stopping_patience = 2
+early_stopping_threshold = 0.0001
+resume_from_checkpoint = "auto"
+gradient_checkpointing = true
+fp16 = true
+bf16 = false
+
+[evaluation]
+split = "test"
+batch_size = 4
+save_predictions = true
+

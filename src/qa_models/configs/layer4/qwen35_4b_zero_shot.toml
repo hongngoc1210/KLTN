@@ -1,0 +1,49 @@
+[data]
+train_path = "qa_models/data/train.json"
+validation_path = "qa_models/data/dev.json"
+test_path = "qa_models/data/test.json"
+id_field = "qa_id"
+context_field = "content"
+question_field = "question"
+answer_field = "answer"
+label_field = "label"
+
+[model]
+name = "qwen35_4b_zero_shot_layer4_repair_action"
+checkpoint = "Qwen/Qwen3.5-4B"
+adapter = "qa_models.tasks.layer4.generative_adapter:GenerativeLayer4Adapter"
+family = "generative_llm"
+method = "zero_shot"
+
+[model.params]
+task = "layer4"
+trust_remote_code = false
+hf_token_env = "HF_TOKEN"
+require_hf_token = false
+device_map = "auto"
+dtype = "float16"
+load_in_4bit = true
+bnb_4bit_quant_type = "nf4"
+bnb_4bit_use_double_quant = true
+bnb_4bit_compute_dtype = "float16"
+max_input_length = 2048
+max_new_tokens = 64
+enable_thinking = false
+
+[training]
+enabled = false
+seed = 42
+epochs = 0
+learning_rate = 0.0
+train_batch_size = 1
+eval_batch_size = 1
+gradient_accumulation_steps = 1
+max_length = 2048
+output_dir = "qa_models/outputs/layer4/qwen35_4b_zero_shot"
+
+[training.params]
+
+[evaluation]
+split = "test"
+batch_size = 1
+save_predictions = true

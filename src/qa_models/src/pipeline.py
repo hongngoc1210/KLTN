@@ -183,6 +183,20 @@ def run_experiment(
 ) -> dict[str, Any]:
     """Run train, evaluate, or both using the adapter named in the config."""
 
+    if str(config.model.params.get("task", "layer1")) == "layer4":
+        if shuffle_context or ablation_suite:
+            raise ValueError("Layer-1 ablations are not available for layer 4")
+        from qa_models.src.layer4_pipeline import run_layer4_experiment
+
+        return run_layer4_experiment(config, stage)
+
+    if str(config.model.params.get("task", "layer1")) == "layer3":
+        if shuffle_context or ablation_suite:
+            raise ValueError("Layer-1 ablations are not available for layer 3")
+        from qa_models.src.layer3_pipeline import run_layer3_experiment
+
+        return run_layer3_experiment(config, stage)
+
     if str(config.model.params.get("task", "layer1")) == "layer2":
         if shuffle_context or ablation_suite:
             raise ValueError("Layer-1 ablations are not available for layer 2")

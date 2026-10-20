@@ -1,0 +1,66 @@
+[data]
+train_path = "qa_models/data/train.json"
+validation_path = "qa_models/data/dev.json"
+test_path = "qa_models/data/test.json"
+id_field = "qa_id"
+context_field = "content"
+question_field = "question"
+answer_field = "answer"
+label_field = "label"
+
+[model]
+name = "qwen35_4b_qlora_layer3_diagnosis"
+checkpoint = "Qwen/Qwen3.5-4B"
+adapter = "qa_models.models.qwen35_4b_qlora_layer3:Qwen35QLoRALayer3Adapter"
+family = "generative_llm"
+method = "qlora"
+
+[model.params]
+task = "layer3"
+trust_remote_code = false
+hf_token_env = "HF_TOKEN"
+require_hf_token = false
+device_map = "auto"
+dtype = "float16"
+load_in_4bit = true
+bnb_4bit_quant_type = "nf4"
+bnb_4bit_use_double_quant = true
+bnb_4bit_compute_dtype = "float16"
+max_input_length = 1984
+max_new_tokens = 64
+enable_thinking = false
+
+[training]
+enabled = true
+seed = 42
+epochs = 10
+learning_rate = 0.0002
+train_batch_size = 1
+eval_batch_size = 1
+gradient_accumulation_steps = 16
+max_length = 2048
+output_dir = "qa_models/outputs/layer3/qwen35_4b_qlora"
+
+[training.params]
+weight_decay = 0.01
+warmup_ratio = 0.05
+logging_steps = 10
+save_total_limit = 2
+early_stopping_patience = 2
+early_stopping_threshold = 0.0001
+resume_from_checkpoint = "auto"
+gradient_checkpointing = true
+fp16 = true
+bf16 = false
+optim = "paged_adamw_8bit"
+lora_r = 16
+lora_alpha = 32
+lora_dropout = 0.05
+lora_bias = "none"
+lora_target_modules = "all-linear"
+
+[evaluation]
+split = "test"
+batch_size = 1
+save_predictions = true
+
