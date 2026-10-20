@@ -1,0 +1,9 @@
+artifacts/
+.test_venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.ipynb_checkpoints/
+legacy/
