@@ -63,7 +63,7 @@ def tiny_encoder():
     adapter.model = BertForSequenceClassification(BertConfig(
         vocab_size=len(adapter.tokenizer), hidden_size=16, intermediate_size=32,
         num_hidden_layers=1, num_attention_heads=2, max_position_embeddings=512,
-        num_labels=10, label2id=LABEL_TO_ID, id2label=ID_TO_LABEL,
+        num_labels=len(DIAGNOSIS_LABELS), label2id=LABEL_TO_ID, id2label=ID_TO_LABEL,
     ))
     return adapter
 
@@ -114,18 +114,21 @@ class Layer3DataAndMetricTests(unittest.TestCase):
 
     def test_rejects_missing_labels_ungrounded_and_invalid_offsets(self):
         for row in ({"span": "Huế"}, {"span": "Huế", "diagnosis": "invented"},
+                    {"span": "Huế", "diagnosis": "implicit_subject_drift"},
                     {"span": "missing", "diagnosis": "other"},
                     {"span": "Huế", "diagnosis": "other", "span_offset": [1, 3]}):
             with self.subTest(row=row), self.assertRaises(ValueError):
                 diagnosis_examples([replace(source(), metadata={"span_label": [row]})])
 
-    def test_fixed_ten_class_macro_includes_absent_classes(self):
+    def test_fixed_nine_class_macro_includes_absent_classes(self):
         x = span()
         metrics = diagnosis_metrics([x], [DiagnosisPrediction(x.example_id, x.label)])
         self.assertEqual(metrics["accuracy"], 1.0)
-        self.assertEqual(metrics["macro_f1"], 0.1)
+        self.assertEqual(metrics["macro_f1"], 1 / len(DIAGNOSIS_LABELS))
         self.assertEqual(metrics["macro_f1_present_classes"], 1.0)
-        self.assertEqual(metrics["per_class"]["implicit_subject_drift"]["support"], 0)
+        self.assertEqual(metrics["per_class"]["incorrect_reference"]["support"], 0)
+        self.assertEqual(metrics["num_classes"], 9)
+        self.assertNotIn("implicit_subject_drift", metrics["per_class"])
 
     def test_perfect_all_classes_and_parse_failure_stays_wrong(self):
         examples = [replace(span(), example_id=str(i), label=label)
@@ -134,14 +137,15 @@ class Layer3DataAndMetricTests(unittest.TestCase):
         self.assertEqual(diagnosis_metrics(examples, predictions)["macro_f1"], 1.0)
         predictions[0] = replace(predictions[0], parse_error=True)
         metrics = diagnosis_metrics(examples, predictions)
-        self.assertAlmostEqual(metrics["macro_f1"], 0.9)
-        self.assertAlmostEqual(metrics["accuracy"], 0.9)
+        self.assertAlmostEqual(metrics["macro_f1"], 8 / 9)
+        self.assertAlmostEqual(metrics["accuracy"], 8 / 9)
         self.assertEqual(metrics["parse_error_count"], 1)
         with self.assertRaises(ValueError):
             diagnosis_metrics(examples, predictions[::-1])
 
     def test_parser_has_no_valid_class_fallback(self):
-        for text in ('{"diagnosis":"invented"}', 'other', '{}', '{"diagnosis":null}'):
+        for text in ('{"diagnosis":"invented"}', 'other', '{}', '{"diagnosis":null}',
+                     '{"diagnosis":"implicit_subject_drift"}'):
             prediction = parse_diagnosis(text, "x")
             self.assertTrue(prediction.parse_error)
             self.assertIsNone(prediction.label)
@@ -149,7 +153,9 @@ class Layer3DataAndMetricTests(unittest.TestCase):
 
     def test_baseline_prompt_uses_only_canonical_diagnosis_labels(self):
         self.assertIs(LABELS, DIAGNOSIS_LABELS)
-        self.assertEqual(PROMPT_VERSION, "layer3-gold-span-diagnosis-baseline-v3")
+        self.assertEqual(PROMPT_VERSION, "layer3-gold-span-diagnosis-baseline-v4")
+        self.assertEqual(len(DIAGNOSIS_LABELS), 9)
+        self.assertNotIn("implicit_subject_drift", SYSTEM_PROMPT)
         definitions = re.findall(r"^\d+\. ([a-z_]+):", SYSTEM_PROMPT, re.MULTILINE)
         self.assertEqual(set(definitions), set(DIAGNOSIS_LABELS))
         self.assertEqual(len(definitions), len(DIAGNOSIS_LABELS) + 1)  # other in both branches
@@ -179,7 +185,7 @@ class Layer3DataAndMetricTests(unittest.TestCase):
         self.assertEqual([x.label for x in selected], list(DIAGNOSIS_LABELS))
         self.assertEqual(selected, GenerativeLayer3Adapter.select_demonstrations(
             train[::-1], shots_per_label=1, seed=42))
-        self.assertEqual(len(build_messages(span(), selected)), 22)
+        self.assertEqual(len(build_messages(span(), selected)), 20)
         with self.assertRaisesRegex(ValueError, "source QA"):
             build_messages(train[0], selected)
         with self.assertRaisesRegex(ValueError, "Not enough TRAIN"):
@@ -247,7 +253,7 @@ class Layer3AdapterTests(unittest.TestCase):
                 model.fit([x], [x])
                 predictions = model.predict([x])
                 self.assertIn(predictions[0].label, DIAGNOSIS_LABELS)
-                self.assertEqual(len(predictions[0].scores), 10)
+                self.assertEqual(len(predictions[0].scores), 9)
                 path = Path(temporary) / "artifacts"
                 model.save(path)
                 restored = EncoderLayer3Adapter(model.config)
@@ -265,6 +271,22 @@ class Layer3AdapterTests(unittest.TestCase):
         ))
         with self.assertRaisesRegex(ValueError, "never silently truncated"):
             model._encode_prompts([span()])
+
+    def test_legacy_ten_label_encoder_artifact_is_rejected(self):
+        legacy = (*DIAGNOSIS_LABELS[:2], "implicit_subject_drift", *DIAGNOSIS_LABELS[2:])
+        adapter = tiny_encoder()
+        legacy_model = BertForSequenceClassification(BertConfig(
+            vocab_size=len(adapter.tokenizer), hidden_size=16, intermediate_size=32,
+            num_hidden_layers=1, num_attention_heads=2, num_labels=len(legacy),
+            label2id={label: index for index, label in enumerate(legacy)},
+            id2label=dict(enumerate(legacy)),
+        ))
+        with TemporaryDirectory() as temporary:
+            path = Path(temporary)
+            legacy_model.save_pretrained(path)
+            adapter.tokenizer.save_pretrained(path)
+            with self.assertRaisesRegex(ValueError, "not a compatible layer3"):
+                EncoderLayer3Adapter(adapter.config).load(path)
 
     def test_qlora_loss_mask_and_gold_free_dev_generation(self):
         model = Qwen35QLoRALayer3Adapter(config("qwen35_4b_qlora"))
@@ -290,7 +312,7 @@ class Layer3AdapterTests(unittest.TestCase):
             predictions=np.array([ids]), label_ids=np.array([[-100]]),
         ))
         self.assertEqual(metrics["accuracy"], 1.0)
-        self.assertEqual(metrics["macro_f1"], 0.1)
+        self.assertEqual(metrics["macro_f1"], 1 / len(DIAGNOSIS_LABELS))
 
     def test_qlora_shared_trainer_generates_only_from_prompt(self):
         threads = torch.get_num_threads()
@@ -359,6 +381,36 @@ class Layer3AdapterTests(unittest.TestCase):
             adapter.fit.assert_not_called()
             with self.assertRaisesRegex(ValueError, "ablations"):
                 run_experiment(cfg, "evaluate", shuffle_context=True)
+
+
+class MergedDiagnosisSplitTests(unittest.TestCase):
+    def test_merged_source_splits_without_old_label_and_preserves_annotations(self):
+        import contextlib
+        import io
+
+        from dataset_curation.scripts.split_final_dataset import split_dataset
+
+        rows = [{
+            "qa_id": f"qa-{index}", "doc_id": f"doc-{index}", "chunk_id": f"chunk-{index}",
+            "domain": "news", "label": "intrinsic_hallucination", "question_type": "answerable",
+            "span_label": [{"span": "Huế", "label": "contradicted", "evidence": "Hà Nội",
+                            "diagnosis": "entity_substitution", "repair_action": "replace_span"}],
+        } for index in range(30)]
+        with TemporaryDirectory() as temporary:
+            source_path = Path(temporary) / "source.json"
+            source_path.write_text(json.dumps(rows), encoding="utf-8")
+            output = Path(temporary) / "splits"
+            with contextlib.redirect_stdout(io.StringIO()):
+                split_dataset(source_path, output, iterations=20)
+            metadata = json.loads((output / "split_metadata.json").read_text())
+            self.assertEqual(metadata["fixed_documents"], {})
+            self.assertEqual(metadata["implicit_subject_drift_counts"], {"train": 0, "dev": 0, "test": 0})
+            restored = []
+            for split in ("train", "dev", "test"):
+                split_rows = json.loads((output / f"{split}.json").read_text())
+                self.assertTrue(split_rows)
+                restored.extend(split_rows)
+            self.assertEqual(sorted(restored, key=lambda x: x["qa_id"]), sorted(rows, key=lambda x: x["qa_id"]))
 
 
 if __name__ == "__main__":

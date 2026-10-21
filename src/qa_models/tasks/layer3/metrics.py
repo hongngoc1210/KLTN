@@ -1,4 +1,4 @@
-"""Ten-class span diagnosis metrics, retaining all malformed predictions."""
+"""Nine-class span diagnosis metrics, retaining all malformed predictions."""
 
 from __future__ import annotations
 

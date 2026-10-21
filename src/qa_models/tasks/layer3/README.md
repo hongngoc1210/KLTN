@@ -22,7 +22,7 @@ Tất cả config ở `qa_models/configs/layer3/`, outputs ở
 | `xlmr_base`, `xlmr_large` | Marked-span sequence classification với context |
 | `mmbert_base` | Marked-span sequence classification với context |
 | `qwen35_4b_zero_shot`, `gemma4_e4b_zero_shot` | JSON diagnosis zero-shot |
-| `qwen35_4b_few_shot`, `gemma4_e4b_few_shot` | 1 demonstration train cho mỗi diagnosis (10 mẫu) |
+| `qwen35_4b_few_shot`, `gemma4_e4b_few_shot` | 1 demonstration train cho mỗi diagnosis (9 mẫu) |
 | `qwen35_4b_qlora` | Completion-only SFT bằng QLoRA; dev sinh tự do |
 
 Encoder dùng classification head chuẩn trên biểu diễn sequence/CLS đã thấy
@@ -48,12 +48,12 @@ không nhận gold completion. Cả dev và test dùng cùng parser/metric.
 
 ## Nhãn và metric
 
-Thứ tự 10 lớp cố định tại `labels.py`. Thiếu/khác taxonomy diagnosis trong gold
+Thứ tự 9 lớp cố định tại `labels.py`. Thiếu/khác taxonomy diagnosis trong gold
 hoặc span không nằm trong answer sẽ báo lỗi, không bỏ qua mẫu. Khi không có
 offset, chọn lần xuất hiện NFC-equivalent đầu tiên như Layer 2.
 
 - `accuracy`: tỷ lệ span có diagnosis đúng.
-- `macro_precision`, `macro_recall`, `macro_f1`: trung bình **cố định 10 lớp**;
+- `macro_precision`, `macro_recall`, `macro_f1`: trung bình **cố định 9 lớp**;
   lớp có mẫu số 0 được tính 0, kể cả lớp không có gold trong split.
 - `weighted_f1`: F1 trọng số theo số gold span mỗi lớp.
 - `per_class`: precision, recall, F1 và support; `confusion_matrix` có thêm
@@ -63,16 +63,25 @@ offset, chọn lần xuất hiện NFC-equivalent đầu tiên như Layer 2.
 - `parse_error_rate`: đầu ra JSON/schema/diagnosis không hợp lệ; giữ trong
   mẫu số, không fallback sang nhãn `other`, không loại khỏi đánh giá.
 
-**Early stopping/chọn checkpoint:** `eval_macro_f1` diagnosis (10 lớp), càng
+**Early stopping/chọn checkpoint:** `eval_macro_f1` diagnosis (9 lớp), càng
 cao càng tốt; evaluate/save mỗi epoch, tối đa 10 epoch, patience 2,
 threshold 0.0001 mặc định. Đây không phải extraction Macro F1 của Layer 2.
 Zero/few-shot không train và không có early stopping.
 
-Full split hiện có 7.793/973/973 span train/dev/test. Nhãn
-`implicit_subject_drift` chỉ có 1/0/1 mẫu. Vì dev thiếu lớp này, perfect dev
-trên 9 lớp có mặt có Macro-F1 cố định 10 lớp là 0.9, không phải 1.0. Luôn xem
-support và metric phụ khi đọc điểm. Không tự gộp nhãn hiếm hoặc đưa test vào
-train. Dữ liệu demo 20/4/4 có thể không đủ 10 diagnosis cho few-shot.
+Full split hiện có 7.793/973/973 span train/dev/test. Taxonomy hiện tại gộp
+`implicit_subject_drift` vào `entity_substitution`: gán hành động cho sai chủ
+thể, kể cả chủ thể bị lược nhưng xác định được từ context, dùng cùng một nhãn.
+Đây là đổi nhãn, không đổi span, evidence, repair_action hay membership/order
+của train/dev/test. QA có 2 annotation được gộp (train 1, test 1); SUM có 53
+(train 38, dev 8, test 7). Prompt hiện tại là `baseline-v4` với 9 lớp.
+
+Checkpoint/head 10 lớp cũ không tương thích với mapping 9 lớp; dùng output_dir
+mới và không resume checkpoint cũ. QLoRA cũng cần train mới theo prompt và
+taxonomy mới; không tự chuyển trọng số hay ghi đè artifacts/predictions cũ.
+Macro-F1 9 lớp không so trực tiếp với Macro-F1 10 lớp cũ. Luôn xem support và
+metric phụ; không đưa test vào train. Dữ liệu demo 20/4/4 có thể không đủ 9
+diagnosis cho few-shot. Các raw review/log và bản backup lịch sử giữ taxonomy
+cũ để bảo toàn provenance; không dùng trực tiếp làm đầu vào Layer 3 mới.
 
 ## Giảm lệch nhãn khi fine-tune encoder
 
@@ -112,7 +121,7 @@ chuỗi lấy mẫu giữa các process; sampler không tự chia lần thứ ha
 
 Tần suất chỉ tính từ train; không lấy từ dev/test, không sửa dữ liệu nguồn.
 Eval loss vẫn là CE thường, metric và early stopping vẫn là dev Macro-F1
-cố định 10 lớp. Train counts và trọng số được log và lưu trong
+cố định 9 lớp cho diagnosis (4 lớp cho repair). Train counts và trọng số được log và lưu trong
 `artifacts/adapter_metadata.json` dưới khóa `imbalance`. Chỉ dùng chúng để
 theo dõi lần train, không cần class weight khi inference.
 

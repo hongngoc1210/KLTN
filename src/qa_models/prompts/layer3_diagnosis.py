@@ -9,7 +9,7 @@ from qa_models.tasks.layer3.labels import DIAGNOSIS_LABELS
 from qa_models.tasks.layer3.records import DiagnosisExample
 
 
-PROMPT_VERSION = "layer3-gold-span-diagnosis-baseline-v3"
+PROMPT_VERSION = "layer3-gold-span-diagnosis-baseline-v4"
 LABELS = DIAGNOSIS_LABELS
 
 SYSTEM_PROMPT = """Bạn là chuyên gia phân loại lỗi hallucination trong câu trả lời tiếng Việt.
@@ -31,13 +31,12 @@ BƯỚC 2A: Nếu KHÔNG CÓ CĂN CỨ, chọn một nhãn
 
 BƯỚC 2B: Nếu MÂU THUẪN, xem phần khác biệt nhỏ nhất giữa span và CONTEXT, rồi chọn nhãn ĐẦU TIÊN phù hợp theo thứ tự:
 1. incorrect_reference: sai số hiệu, điều/khoản, tên văn bản hoặc nguồn mà CONTEXT xác định được.
-2. implicit_subject_drift: CONTEXT lược chủ ngữ nhưng ngữ cảnh xác định được chủ thể, còn span gán hành động cho chủ thể khác. Nếu CONTEXT ghi rõ chủ thể rồi ANSWER thay chủ thể đó, chọn entity_substitution.
-3. sino_vietnamese_term_confusion: nhầm lẫn giữa hai thuật ngữ Hán-Việt hoặc chuyên ngành dễ nhầm trong cùng hệ khái niệm nhưng khác nghĩa (ví dụ: tạm giữ / tạm giam). Không dùng chỉ vì span có từ chuyên ngành.
-4. numerical_distortion: sai số lượng, giá trị, tỷ lệ, đơn vị, so sánh định lượng. Không gồm thời điểm, thời hạn hoặc thời lượng.
-5. circumstance_error: sai thời điểm, thời hạn, thời lượng, địa điểm sự kiện, điều kiện, phạm vi áp dụng hoặc mức độ bắt buộc.
-6. entity_substitution: thay tên hoặc danh tính người, tổ chức, cơ quan; gồm sai danh xưng, giới tính, vai vế hoặc đại từ của một biểu thức được viết rõ.
-7. predicate_error: sai hành động, trạng thái, quan hệ, xu hướng, phủ định, nhân quả.
-8. other: có mâu thuẫn nhưng không khớp bước nào.
+2. sino_vietnamese_term_confusion: nhầm lẫn giữa hai thuật ngữ Hán-Việt hoặc chuyên ngành dễ nhầm trong cùng hệ khái niệm nhưng khác nghĩa (ví dụ: tạm giữ / tạm giam). Không dùng chỉ vì span có từ chuyên ngành.
+3. numerical_distortion: sai số lượng, giá trị, tỷ lệ, đơn vị, so sánh định lượng. Không gồm thời điểm, thời hạn hoặc thời lượng.
+4. circumstance_error: sai thời điểm, thời hạn, thời lượng, địa điểm sự kiện, điều kiện, phạm vi áp dụng hoặc mức độ bắt buộc.
+5. entity_substitution: thay tên hoặc danh tính người, tổ chức, cơ quan; gồm sai danh xưng, giới tính, vai vế hoặc đại từ của một biểu thức được viết rõ. Cũng gồm gán hành động cho sai chủ thể khi CONTEXT lược chủ ngữ nhưng ngữ cảnh xác định được chủ thể đúng; không đoán chủ thể khi quy chiếu còn mơ hồ.
+6. predicate_error: sai hành động, trạng thái, quan hệ, xu hướng, phủ định, nhân quả.
+7. other: có mâu thuẫn nhưng không khớp bước nào.
 
 QUY TẮC XUẤT
 Chỉ xuất một JSON duy nhất, không markdown, không giải thích:

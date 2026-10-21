@@ -7,6 +7,7 @@ from dataclasses import asdict
 
 from qa_models.src.config_loader import load_adapter_class
 from qa_models.src.data import load_examples
+from qa_models.tasks.layer3.labels import DIAGNOSIS_LABELS
 from qa_models.tasks.layer3.metrics import diagnosis_metrics
 from qa_models.tasks.layer3.records import diagnosis_examples
 from qa_models.utils.io import write_json
@@ -30,8 +31,8 @@ def run_layer3_experiment(config, stage: str) -> dict:
             validation = diagnosis_examples(load_examples(config.data.validation_path, config.data))
             if not train or not validation:
                 raise ValueError("Layer-3 training and validation require annotated diagnosis spans")
-            LOGGER.info("Layer-3 spans: train=%d, validation=%d; early-stop=dev macro_f1 (10 classes)",
-                        len(train), len(validation))
+            LOGGER.info("Layer-3 spans: train=%d, validation=%d; early-stop=dev macro_f1 (%d classes)",
+                        len(train), len(validation), len(DIAGNOSIS_LABELS))
             adapter.fit(train, validation)
         adapter.save(output_dir / "artifacts")
 
