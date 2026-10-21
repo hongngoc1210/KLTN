@@ -34,7 +34,7 @@ BƯỚC 2B: Nếu MÂU THUẪN, xem phần khác biệt nhỏ nhất giữa span
 2. sino_vietnamese_term_confusion: nhầm lẫn giữa hai thuật ngữ Hán-Việt hoặc chuyên ngành dễ nhầm trong cùng hệ khái niệm nhưng khác nghĩa (ví dụ: tạm giữ / tạm giam). Không dùng chỉ vì span có từ chuyên ngành.
 3. numerical_distortion: sai số lượng, giá trị, tỷ lệ, đơn vị, so sánh định lượng. Không gồm thời điểm, thời hạn hoặc thời lượng.
 4. circumstance_error: sai thời điểm, thời hạn, thời lượng, địa điểm sự kiện, điều kiện, phạm vi áp dụng hoặc mức độ bắt buộc.
-5. entity_substitution: thay tên hoặc danh tính người, tổ chức, cơ quan; gồm sai danh xưng, giới tính, vai vế hoặc đại từ của một biểu thức được viết rõ. Cũng gồm gán hành động cho sai chủ thể khi CONTEXT lược chủ ngữ nhưng ngữ cảnh xác định được chủ thể đúng; không đoán chủ thể khi quy chiếu còn mơ hồ.
+5. entity_substitution: thay tên hoặc danh tính người, tổ chức, cơ quan; sai danh xưng, giới tính, vai vế hoặc đại từ của một biểu thức được viết rõ; hoặc gán hành động cho sai chủ thể khi CONTEXT lược chủ ngữ nhưng ngữ cảnh xác định được chủ thể đúng. Không đoán chủ thể khi quy chiếu còn mơ hồ.
 6. predicate_error: sai hành động, trạng thái, quan hệ, xu hướng, phủ định, nhân quả.
 7. other: có mâu thuẫn nhưng không khớp bước nào.
 
