@@ -220,6 +220,30 @@ python qa_models/main.py \
   --stage evaluate \
   --ablation-suite
 
+# Chạy riêng kiểm tra bỏ toàn bộ context (không train lại, không ghi đè kết quả gốc).
+python -m qa_models.scripts.run_no_context \
+  --config qa_models/configs/layer1/phobert_base_v2.toml
+
+# Thống kê độ dài passage/chunk, số QA trên mỗi chunk và tỷ lệ input bị tokenizer cắt.
+python -m qa_models.scripts.analyze_input_chunking \
+  --config qa_models/configs/layer1/phobert_base_v2.toml \
+  --tokenize
+
+# CI bootstrap theo document, Macro-F1 support >= 20, rare-class notes và
+# confusion matrix CSV/SVG. Bỏ --data nếu chỉ muốn bootstrap theo example.
+python -m qa_models.scripts.analyze_predictions \
+  --predictions qa_models/outputs/layer1/phobert_base_v2/predictions.json \
+  --data qa_models/data/test.json \
+  --output-dir qa_models/outputs/layer1/phobert_base_v2/analysis
+
+# Với Layer 3 có thể báo cáo thêm Macro-F1 theo nhóm ngữ nghĩa. Mapping chỉ là
+# mẫu và phải được chốt theo cách diễn giải trong bài trước khi dùng.
+python -m qa_models.scripts.analyze_predictions \
+  --predictions qa_models/outputs/layer3/<model>/predictions.json \
+  --data qa_models/data/test.json \
+  --groups qa_models/scripts/diagnosis_groups.example \
+  --output-dir qa_models/outputs/layer3/<model>/analysis
+
 # Kiểm tra schema và thống kê nhãn; chưa cần adapter hoạt động.
 python -m qa_models.main inspect-data --config qa_models/configs/<model>.toml
 

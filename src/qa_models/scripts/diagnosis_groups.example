@@ -1,0 +1,17 @@
+{
+  "contradicted_detail": [
+    "circumstance_error",
+    "entity_substitution",
+    "incorrect_reference",
+    "numerical_distortion",
+    "predicate_error",
+    "sino_vietnamese_term_confusion"
+  ],
+  "unsupported": [
+    "unsupported_addition",
+    "unsupported_reference"
+  ],
+  "other": [
+    "other"
+  ]
+}
